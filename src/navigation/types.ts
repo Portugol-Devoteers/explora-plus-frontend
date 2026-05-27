@@ -13,6 +13,11 @@ export type RootStackParamList = {
   Route: { placeId: string };
 };
 
+export type AuthStackParamList = {
+  Login: undefined;
+  Register: undefined;
+};
+
 export type PlaceDetailProps = NativeStackScreenProps<
   RootStackParamList,
   "PlaceDetail"
