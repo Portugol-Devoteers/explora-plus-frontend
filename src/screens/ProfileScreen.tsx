@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useEffect, useState } from "react";
 import {
   Image,
   Pressable,
@@ -14,7 +15,8 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { MOCK_USER } from "../data/mockUser";
+import { useAuth } from "../context/AuthContext";
+import { fetchMe, type Me } from "../services/me";
 import { colors, radius, spacing, typography } from "../theme";
 
 type MenuItem = {
@@ -55,6 +57,33 @@ const MENU: MenuGroup[] = [
 ];
 
 export function ProfileScreen() {
+  const { signOut, user } = useAuth();
+  const [me, setMe] = useState<Me | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetchMe()
+      .then((data) => {
+        if (active) setMe(data);
+      })
+      .catch(() => {
+        if (active) setMe(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const displayName = me?.name ?? user?.username ?? "Usuário";
+  const displayEmail = me?.email ?? user?.email ?? "";
+  const memberSince = me?.memberSince ?? "";
+  const avatarUrl =
+    me?.avatarUrl ??
+    `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(
+      displayName,
+    )}&backgroundColor=ff6b35`;
+  const stats = me?.stats ?? { routes: 0, placesVisited: 0, tickets: 0 };
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <ScrollView
@@ -66,14 +95,13 @@ export function ProfileScreen() {
           style={styles.profileCard}
         >
           <View style={styles.profileTop}>
-            <Image
-              source={{ uri: MOCK_USER.avatarUrl }}
-              style={styles.avatar}
-            />
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
             <View style={styles.profileText}>
-              <Text style={styles.profileName}>{MOCK_USER.name}</Text>
-              <Text style={styles.profileEmail}>{MOCK_USER.email}</Text>
-              <Text style={styles.profileSince}>{MOCK_USER.memberSince}</Text>
+              <Text style={styles.profileName}>{displayName}</Text>
+              <Text style={styles.profileEmail}>{displayEmail}</Text>
+              {memberSince ? (
+                <Text style={styles.profileSince}>{memberSince}</Text>
+              ) : null}
             </View>
             <Pressable
               style={({ pressed }) => [
@@ -88,14 +116,11 @@ export function ProfileScreen() {
           </View>
 
           <View style={styles.statsRow}>
-            <StatCell label="Rotas" value={MOCK_USER.stats.routes} />
+            <StatCell label="Rotas" value={stats.routes} />
             <View style={styles.statDivider} />
-            <StatCell
-              label="Lugares"
-              value={MOCK_USER.stats.placesVisited}
-            />
+            <StatCell label="Lugares" value={stats.placesVisited} />
             <View style={styles.statDivider} />
-            <StatCell label="Ingressos" value={MOCK_USER.stats.tickets} />
+            <StatCell label="Ingressos" value={stats.tickets} />
           </View>
         </Animated.View>
 
@@ -124,10 +149,10 @@ export function ProfileScreen() {
         <Animated.View
           entering={FadeInDown.delay(380).duration(380).springify()}
         >
-          <LogoutButton />
+          <LogoutButton onPress={signOut} />
         </Animated.View>
 
-        <Text style={styles.version}>Explora+ · versão 0.1.0 (mock)</Text>
+        <Text style={styles.version}>Explora+ · versão 0.1.0</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -172,7 +197,7 @@ function MenuRow({ item }: { item: MenuItem }) {
   );
 }
 
-function LogoutButton() {
+function LogoutButton({ onPress }: { onPress: () => void }) {
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: withSpring(scale.value, { damping: 18 }) }],
@@ -181,6 +206,7 @@ function LogoutButton() {
   return (
     <Animated.View style={animStyle}>
       <Pressable
+        onPress={onPress}
         onPressIn={() => (scale.value = 0.985)}
         onPressOut={() => (scale.value = 1)}
         style={styles.logoutBtn}

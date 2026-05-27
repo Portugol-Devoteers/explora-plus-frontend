@@ -19,12 +19,12 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
-import {
-  MOCK_TICKETS,
-  MockTicket,
-  TICKET_STATUS_META,
-} from "../data/mockTickets";
 import type { RootStackParamList } from "../navigation/types";
+import {
+  fetchTickets,
+  TICKET_STATUS_META,
+  type Ticket,
+} from "../services/tickets";
 import { colors, radius, spacing, typography } from "../theme";
 
 type SectionKey = "proximos" | "historico";
@@ -39,8 +39,23 @@ type NavProp = NativeStackNavigationProp<RootStackParamList>;
 export function TicketsScreen() {
   const navigation = useNavigation<NavProp>();
   const [section, setSection] = useState<SectionKey>("proximos");
+  const [tickets, setTickets] = useState<Ticket[]>([]);
 
-  const visible = MOCK_TICKETS.filter((t) =>
+  useEffect(() => {
+    let active = true;
+    fetchTickets()
+      .then((data) => {
+        if (active) setTickets(data);
+      })
+      .catch(() => {
+        if (active) setTickets([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const visible = tickets.filter((t) =>
     section === "proximos" ? t.status === "valid" : t.status !== "valid",
   );
 
@@ -131,7 +146,7 @@ function TicketCard({
   ticket,
   onPress,
 }: {
-  ticket: MockTicket;
+  ticket: Ticket;
   onPress: () => void;
 }) {
   const scale = useSharedValue(1);

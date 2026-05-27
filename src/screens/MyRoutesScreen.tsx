@@ -19,8 +19,8 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { MOCK_ROUTES, MockRoute, TRANSPORT_META } from "../data/mockRoutes";
 import type { RootStackParamList } from "../navigation/types";
+import { fetchRoutes, type Route, TRANSPORT_META } from "../services/routes";
 import { colors, radius, spacing, typography } from "../theme";
 
 type FilterKey = "todas" | "salvas" | "semana";
@@ -36,8 +36,23 @@ type NavProp = NativeStackNavigationProp<RootStackParamList>;
 export function MyRoutesScreen() {
   const navigation = useNavigation<NavProp>();
   const [filter, setFilter] = useState<FilterKey>("todas");
+  const [routes, setRoutes] = useState<Route[]>([]);
 
-  const visible = MOCK_ROUTES.filter((r) => {
+  useEffect(() => {
+    let active = true;
+    fetchRoutes()
+      .then((data) => {
+        if (active) setRoutes(data);
+      })
+      .catch(() => {
+        if (active) setRoutes([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const visible = routes.filter((r) => {
     if (filter === "salvas") return r.saved;
     if (filter === "semana") return /Hoje|Ontem|Sex|Qui/.test(r.generatedAt);
     return true;
@@ -145,7 +160,7 @@ function RouteCard({
   route,
   onPress,
 }: {
-  route: MockRoute;
+  route: Route;
   onPress: () => void;
 }) {
   const scale = useSharedValue(1);

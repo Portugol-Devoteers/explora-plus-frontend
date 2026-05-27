@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   FlatList,
   Image,
@@ -21,17 +21,47 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { getPlaceById } from "../data/places";
 import type { PlaceDetailProps } from "../navigation/types";
+import { fetchPlaceBySlug, type Place } from "../services/places";
 import { colors, radius, spacing, typography } from "../theme";
 
 const HERO_HEIGHT = 380;
 
 export function PlaceDetailScreen({ route, navigation }: PlaceDetailProps) {
   const { placeId } = route.params;
-  const place = getPlaceById(placeId);
+  const [place, setPlace] = useState<Place | null>(null);
+  const [loading, setLoading] = useState(true);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const { width } = useWindowDimensions();
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    fetchPlaceBySlug(placeId)
+      .then((data) => {
+        if (active) {
+          setPlace(data);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setPlace(null);
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [placeId]);
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={styles.notFound}>Carregando...</Text>
+      </SafeAreaView>
+    );
+  }
 
   if (!place) {
     return (
@@ -148,7 +178,7 @@ export function PlaceDetailScreen({ route, navigation }: PlaceDetailProps) {
             <PrimaryButton
               label="Gerar Rota"
               onPress={() =>
-                navigation.navigate("Route", { placeId: place.id })
+                navigation.navigate("Route", { placeId: place.slug })
               }
             />
             <SecondaryButton label="Comprar Ingressos" onPress={() => {}} />
