@@ -11,18 +11,22 @@ import {
   View,
 } from "react-native";
 import Animated, {
-  FadeIn,
   FadeInDown,
   FadeInUp,
-  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { PLACES } from "../data/places";
+import { MapView, type MapMarker } from "../components/MapView";
 import type { RootStackParamList } from "../navigation/types";
+import {
+  fetchPlaces,
+  SANTOS_CENTER,
+  SANTOS_ZOOM,
+  type Place,
+} from "../services/places";
 import { colors, radius, spacing, typography } from "../theme";
 
 type FilterKey = "todos" | "monumentos" | "eventos" | "transporte";
@@ -40,13 +44,39 @@ export function ExploreScreen() {
   const navigation = useNavigation<NavProp>();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("todos");
   const [query, setQuery] = useState("");
+  const [places, setPlaces] = useState<Place[]>([]);
 
-  const visiblePlaces = PLACES.filter((p) => {
+  useEffect(() => {
+    let active = true;
+    fetchPlaces()
+      .then((data) => {
+        if (active) setPlaces(data);
+      })
+      .catch(() => {
+        if (active) setPlaces([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const visiblePlaces = places.filter((p) => {
     if (activeFilter === "todos") return true;
     if (activeFilter === "monumentos") return p.kind === "monumento";
     if (activeFilter === "eventos") return p.kind === "evento";
-    return false;
+    if (activeFilter === "transporte") return p.kind === "transporte";
+    return true;
   });
+
+  const markers: MapMarker[] = visiblePlaces
+    .filter((p) => p.location)
+    .map((p) => ({
+      id: p.slug,
+      lat: p.location.lat,
+      lng: p.location.lng,
+      kind: p.kind,
+      label: p.name,
+    }));
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -89,38 +119,20 @@ export function ExploreScreen() {
       </Animated.View>
 
       <View style={styles.mapContainer}>
-        <MapPlaceholder />
-
-        {visiblePlaces.map((p, i) => (
-          <Animated.View
-            key={p.id}
-            entering={FadeIn.delay(80 * i).duration(360).springify()}
-            layout={LinearTransition.springify()}
-            style={[
-              styles.markerWrap,
-              { top: p.mapPosition.top, left: p.mapPosition.left } as any,
-            ]}
-          >
-            <MarkerPin
-              kind={p.kind}
-              onPress={() =>
-                navigation.navigate("PlaceDetail", { placeId: p.id })
-              }
-            />
-          </Animated.View>
-        ))}
-
-        <Animated.View
-          entering={FadeIn.duration(500)}
-          style={[styles.userDotWrap, { top: "78%", left: "50%" } as any]}
-        >
-          <View style={styles.userDotPulse} />
-          <View style={styles.userDot} />
-        </Animated.View>
+        <MapView
+          center={SANTOS_CENTER}
+          zoom={SANTOS_ZOOM}
+          markers={markers}
+          onMarkerPress={(slug) =>
+            navigation.navigate("PlaceDetail", { placeId: slug })
+          }
+          style={styles.map}
+        />
 
         <Animated.View
           entering={FadeInUp.delay(200).duration(420).springify()}
           style={styles.nearbyCard}
+          pointerEvents="box-none"
         >
           <View style={styles.nearbyThumb}>
             <Ionicons name="business" size={24} color={colors.textOnPrimary} />
@@ -131,7 +143,9 @@ export function ExploreScreen() {
               {visiblePlaces.length === 1 ? "lugar" : "lugares"} por perto
             </Text>
             <Text style={styles.nearbySubtitle}>
-              Descubra locais históricos a poucos passos
+              {visiblePlaces.length === 0
+                ? "Carregando lugares ou nenhum cadastrado ainda"
+                : "Descubra locais históricos a poucos passos"}
             </Text>
           </View>
         </Animated.View>
@@ -173,64 +187,6 @@ function FilterChip({
         </Animated.Text>
       </Pressable>
     </Animated.View>
-  );
-}
-
-function MarkerPin({
-  kind,
-  onPress,
-}: {
-  kind: "monumento" | "evento";
-  onPress: () => void;
-}) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: withSpring(scale.value, { damping: 14 }) }],
-  }));
-
-  return (
-    <Animated.View style={animStyle}>
-      <Pressable
-        onPress={onPress}
-        onPressIn={() => (scale.value = 0.88)}
-        onPressOut={() => (scale.value = 1)}
-        style={styles.marker}
-        hitSlop={8}
-      >
-        <Ionicons
-          name={kind === "monumento" ? "location" : "calendar"}
-          size={16}
-          color={colors.textOnPrimary}
-        />
-      </Pressable>
-    </Animated.View>
-  );
-}
-
-function MapPlaceholder() {
-  const cols = 6;
-  const rows = 12;
-  return (
-    <View style={styles.mapBg}>
-      {Array.from({ length: cols - 1 }).map((_, i) => (
-        <View
-          key={`v${i}`}
-          style={[
-            styles.gridLineV,
-            { left: `${((i + 1) * 100) / cols}%` } as any,
-          ]}
-        />
-      ))}
-      {Array.from({ length: rows - 1 }).map((_, i) => (
-        <View
-          key={`h${i}`}
-          style={[
-            styles.gridLineH,
-            { top: `${((i + 1) * 100) / rows}%` } as any,
-          ]}
-        />
-      ))}
-    </View>
   );
 }
 
@@ -305,68 +261,8 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: "hidden",
   },
-  mapBg: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.mapBackground,
-  },
-  gridLineV: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    width: 1,
-    backgroundColor: colors.mapGrid,
-  },
-  gridLineH: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: colors.mapGrid,
-  },
-  markerWrap: {
-    position: "absolute",
-    marginLeft: -16,
-    marginTop: -16,
-  },
-  marker: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.full,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: colors.surface,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  userDotWrap: {
-    position: "absolute",
-    marginLeft: -16,
-    marginTop: -16,
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  userDot: {
-    width: 14,
-    height: 14,
-    borderRadius: radius.full,
-    backgroundColor: colors.userLocation,
-    borderWidth: 2,
-    borderColor: colors.surface,
-  },
-  userDotPulse: {
-    position: "absolute",
-    width: 30,
-    height: 30,
-    borderRadius: radius.full,
-    backgroundColor: colors.userLocation,
-    opacity: 0.18,
+  map: {
+    flex: 1,
   },
   nearbyCard: {
     position: "absolute",

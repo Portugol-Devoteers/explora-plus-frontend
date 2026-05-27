@@ -2,16 +2,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useState } from "react";
-import {
-  LayoutChangeEvent,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  useWindowDimensions,
-} from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
-  FadeIn,
   FadeInDown,
   useAnimatedStyle,
   useSharedValue,
@@ -19,9 +11,14 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Svg, { Defs, LinearGradient, Path, Stop } from "react-native-svg";
-import { getPlaceById } from "../data/places";
+import { MapView, type MapMarker } from "../components/MapView";
 import type { RootStackParamList } from "../navigation/types";
+import {
+  fetchPlaceBySlug,
+  SANTOS_CENTER,
+  type LatLng,
+  type Place,
+} from "../services/places";
 import { colors, radius, spacing, typography } from "../theme";
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, "Route">;
@@ -45,7 +42,7 @@ const TRANSPORT: TransportOption[] = [
     title: "Ônibus / Metrô",
     subtitle: "Linha 34 → Baldeação → Linha 12",
     durationMin: 18,
-    price: "€ 1,50",
+    price: "R$ 1,50",
     eco: true,
   },
   {
@@ -54,14 +51,14 @@ const TRANSPORT: TransportOption[] = [
     title: "Carro de App",
     subtitle: "Uber, 99 ou similares",
     durationMin: 12,
-    price: "€ 8,50",
+    price: "R$ 8,50",
     eco: false,
   },
   {
     key: "walking",
     icon: "walk",
     title: "A pé",
-    subtitle: "1,8 km pelo centro histórico",
+    subtitle: "Pelo centro histórico",
     durationMin: 25,
     price: "Grátis",
     eco: true,
@@ -72,10 +69,50 @@ export function RouteScreen() {
   const navigation = useNavigation<NavProp>();
   const route = useRoute();
   const params = route.params as { placeId?: string } | undefined;
-  const place = params?.placeId ? getPlaceById(params.placeId) : undefined;
+  const [place, setPlace] = useState<Place | null>(null);
   const [selected, setSelected] = useState<TransportKey>("transit");
 
+  useEffect(() => {
+    if (!params?.placeId) return;
+    let active = true;
+    fetchPlaceBySlug(params.placeId)
+      .then((data) => {
+        if (active) setPlace(data);
+      })
+      .catch(() => {
+        if (active) setPlace(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [params?.placeId]);
+
   const destinationName = place?.name ?? "Destino";
+  const destination: LatLng | null = place?.location ?? null;
+  const origin: LatLng = SANTOS_CENTER;
+
+  const markers: MapMarker[] = [
+    { id: "origin", lat: origin.lat, lng: origin.lng, kind: "user", label: "Você" },
+    ...(destination
+      ? [
+          {
+            id: "destination",
+            lat: destination.lat,
+            lng: destination.lng,
+            kind: "destination" as const,
+            label: destinationName,
+          },
+        ]
+      : []),
+  ];
+
+  const polyline: LatLng[] = destination ? [origin, destination] : [];
+  const mapCenter: LatLng = destination
+    ? {
+        lat: (origin.lat + destination.lat) / 2,
+        lng: (origin.lng + destination.lng) / 2,
+      }
+    : origin;
 
   return (
     <View style={styles.container}>
@@ -101,7 +138,15 @@ export function RouteScreen() {
         </View>
       </SafeAreaView>
 
-      <MapArea destinationName={destinationName} />
+      <View style={styles.mapWrap}>
+        <MapView
+          center={mapCenter}
+          zoom={14}
+          markers={markers}
+          polyline={polyline}
+          style={styles.map}
+        />
+      </View>
 
       <Animated.View
         entering={FadeInDown.duration(440).springify().damping(18)}
@@ -129,110 +174,6 @@ export function RouteScreen() {
 
         <StartButton onPress={() => {}} />
       </Animated.View>
-    </View>
-  );
-}
-
-function MapArea({ destinationName }: { destinationName: string }) {
-  const { width } = useWindowDimensions();
-  const [size, setSize] = useState({ w: width, h: 320 });
-
-  const onLayout = (e: LayoutChangeEvent) => {
-    const { width: w, height: h } = e.nativeEvent.layout;
-    setSize({ w, h });
-  };
-
-  const start = { x: size.w * 0.22, y: size.h * 0.26 };
-  const end = { x: size.w * 0.78, y: size.h * 0.62 };
-  const ctrl = { x: size.w * 0.42, y: size.h * 0.78 };
-
-  const path = `M ${start.x} ${start.y} Q ${ctrl.x} ${ctrl.y} ${end.x} ${end.y}`;
-
-  return (
-    <View style={styles.mapWrap} onLayout={onLayout}>
-      <MapGrid />
-
-      <Svg width={size.w} height={size.h} style={StyleSheet.absoluteFill}>
-        <Defs>
-          <LinearGradient id="route" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor={colors.primary} stopOpacity={0.7} />
-            <Stop offset="1" stopColor={colors.primary} stopOpacity={1} />
-          </LinearGradient>
-        </Defs>
-        <Path
-          d={path}
-          stroke="url(#route)"
-          strokeWidth={5}
-          strokeLinecap="round"
-          fill="none"
-        />
-      </Svg>
-
-      <Animated.View
-        entering={FadeIn.delay(120)}
-        style={[styles.distanceBadge, { top: 16, right: 16 }]}
-      >
-        <Text style={styles.distanceBadgeText}>1,8 km</Text>
-      </Animated.View>
-
-      <Animated.View
-        entering={FadeIn.delay(220)}
-        style={[
-          styles.markerWrap,
-          { left: start.x, top: start.y },
-        ]}
-      >
-        <View style={styles.userPulse} />
-        <View style={styles.userMarker}>
-          <Ionicons
-            name="navigate"
-            size={16}
-            color={colors.textOnPrimary}
-          />
-        </View>
-        <View style={styles.markerLabel}>
-          <Text style={styles.markerLabelText}>Sua Localização</Text>
-        </View>
-      </Animated.View>
-
-      <Animated.View
-        entering={FadeIn.delay(320)}
-        style={[styles.markerWrap, { left: end.x, top: end.y }]}
-      >
-        <View style={styles.destMarker}>
-          <View style={styles.destMarkerInner} />
-        </View>
-        <View style={styles.markerLabel}>
-          <Text style={styles.markerLabelText}>{destinationName}</Text>
-        </View>
-      </Animated.View>
-    </View>
-  );
-}
-
-function MapGrid() {
-  const cols = 6;
-  const rows = 8;
-  return (
-    <View style={styles.mapBg}>
-      {Array.from({ length: cols - 1 }).map((_, i) => (
-        <View
-          key={`v${i}`}
-          style={[
-            styles.gridLineV,
-            { left: `${((i + 1) * 100) / cols}%` } as any,
-          ]}
-        />
-      ))}
-      {Array.from({ length: rows - 1 }).map((_, i) => (
-        <View
-          key={`h${i}`}
-          style={[
-            styles.gridLineH,
-            { top: `${((i + 1) * 100) / rows}%` } as any,
-          ]}
-        />
-      ))}
     </View>
   );
 }
@@ -284,29 +225,20 @@ function TransportCard({
         <View style={styles.cardBody}>
           <View style={styles.cardTitleRow}>
             <Text
-              style={[
-                styles.cardTitle,
-                active && styles.cardTitleActive,
-              ]}
+              style={[styles.cardTitle, active && styles.cardTitleActive]}
             >
               {option.title}
             </Text>
             {option.eco && (
               <View
-                style={[
-                  styles.ecoBadge,
-                  active && styles.ecoBadgeOnActive,
-                ]}
+                style={[styles.ecoBadge, active && styles.ecoBadgeOnActive]}
               >
                 <Text style={styles.ecoBadgeText}>Eco</Text>
               </View>
             )}
           </View>
           <Text
-            style={[
-              styles.cardSubtitle,
-              active && styles.cardSubtitleActive,
-            ]}
+            style={[styles.cardSubtitle, active && styles.cardSubtitleActive]}
           >
             {option.subtitle}
           </Text>
@@ -420,108 +352,8 @@ const styles = StyleSheet.create({
     height: 320,
     overflow: "hidden",
   },
-  mapBg: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.mapBackground,
-  },
-  gridLineV: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    width: 1,
-    backgroundColor: colors.mapGrid,
-  },
-  gridLineH: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: colors.mapGrid,
-  },
-  distanceBadge: {
-    position: "absolute",
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.full,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  distanceBadgeText: {
-    ...typography.body,
-    fontSize: 13,
-    fontWeight: "600",
-    color: colors.textPrimary,
-  },
-  markerWrap: {
-    position: "absolute",
-    alignItems: "center",
-    marginLeft: -16,
-    marginTop: -16,
-  },
-  userPulse: {
-    position: "absolute",
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.userLocation,
-    opacity: 0.18,
-  },
-  userMarker: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.userLocation,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: colors.surface,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  destMarker: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: colors.surface,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  destMarkerInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.surface,
-  },
-  markerLabel: {
-    marginTop: 6,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.sm,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  markerLabelText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: colors.textPrimary,
+  map: {
+    flex: 1,
   },
   sheet: {
     flex: 1,
