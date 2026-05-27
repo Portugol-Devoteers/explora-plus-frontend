@@ -1,0 +1,17 @@
+services:
+  frontend:
+    build: .
+    container_name: explora_plus_frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      EXPO_NO_TELEMETRY: "1"
+      CI: "1"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    ports:
+      - "8082:8081"
+      - "19006:19006"
+    command: npx expo start --web --port 8081
