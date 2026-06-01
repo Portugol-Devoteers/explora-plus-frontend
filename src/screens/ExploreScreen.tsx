@@ -75,6 +75,7 @@ export function ExploreScreen() {
   const [destination, setDestination] = useState(DEFAULT_DESTINATION);
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
   const [searchCollapsed, setSearchCollapsed] = useState(false);
+  const [summaryCollapsed, setSummaryCollapsed] = useState(false);
   const [routeResult, setRouteResult] = useState<TourRouteResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,12 +147,6 @@ export function ExploreScreen() {
   const mapCenter = getMapCenter(routeResult);
   const routeDistance = routeResult ? formatDistance(routeResult.route.distance_m) : "--";
   const routeDuration = routeResult ? formatDuration(routeResult.route.duration_s) : "--";
-  const directDistance = routeResult
-    ? formatDistance(routeResult.route.direct_route.distance_m)
-    : "--";
-  const directDuration = routeResult
-    ? formatDuration(routeResult.route.direct_route.duration_s)
-    : "--";
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -293,17 +288,35 @@ export function ExploreScreen() {
                     : "Rota direta em uso"}
                 </Text>
               </View>
-              {loading ? (
-                <View style={styles.loadingPill}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={styles.loadingPillText}>Calculando...</Text>
-                </View>
-              ) : null}
-            </View>
+              <View style={styles.summaryActions}>
+                {loading ? (
+                  <View style={styles.loadingPill}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.loadingPillText}>Calculando...</Text>
+                  </View>
+                ) : null}
 
-            <Text style={styles.summaryRouteText} numberOfLines={2}>
-              {routeOriginLabel} ate {routeDestinationLabel}
-            </Text>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.summaryToggleButton,
+                    pressed && styles.collapseButtonPressed,
+                  ]}
+                  onPress={() => setSummaryCollapsed((current) => !current)}
+                  accessibilityLabel={
+                    summaryCollapsed ? "Expandir resumo" : "Minimizar resumo"
+                  }
+                >
+                  <Ionicons
+                    name={summaryCollapsed ? "chevron-down" : "chevron-up"}
+                    size={16}
+                    color={colors.textPrimary}
+                  />
+                  <Text style={styles.summaryToggleText}>
+                    {summaryCollapsed ? "Abrir resumo" : "Minimizar"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
 
             <View style={styles.metricsRow}>
               <MetricCell label="Distancia" value={routeDistance} />
@@ -311,57 +324,51 @@ export function ExploreScreen() {
               <MetricCell label="POIs visiveis" value={String(visiblePlaces.length)} />
             </View>
 
-            {routeResult ? (
-              <Text style={styles.compareText}>
-                Linha direta guardada no payload: {directDistance} em {directDuration}.
-              </Text>
+            {!summaryCollapsed ? (
+              <>
+                {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+                <SectionTitle title="Paradas da rota" />
+                {itineraryStops.length > 0 ? (
+                  itineraryStops.map((place) => (
+                    <PlaceRow
+                      key={`stop-${place.order}`}
+                      leading={String(place.waypoint_order ?? place.order)}
+                      tone={place.category}
+                      title={place.name}
+                      meta={`${CATEGORY_LABELS[place.category]} · ${formatDistanceFromRoute(
+                        place.distance_from_route_m,
+                      )}`}
+                    />
+                  ))
+                ) : (
+                  <Text style={styles.emptySectionText}>
+                    {routeResult?.route.mode === "direct_fallback"
+                      ? "Nenhuma parada entrou na rota ativa. Os pontos abaixo seguem como sugestoes."
+                      : "Nenhuma parada confirmada nesta rota."}
+                  </Text>
+                )}
+
+                <SectionTitle title="Sugestoes extras" />
+                {extraSuggestions.length > 0 ? (
+                  extraSuggestions.map((place) => (
+                    <PlaceRow
+                      key={`extra-${place.order}`}
+                      leading={CATEGORY_SHORT_LABELS[place.category]}
+                      tone={place.category}
+                      title={place.name}
+                      meta={`${CATEGORY_LABELS[place.category]} · ${formatDistanceFromRoute(
+                        place.distance_from_route_m,
+                      )}`}
+                    />
+                  ))
+                ) : (
+                  <Text style={styles.emptySectionText}>
+                    Nao ha sugestoes extras para o filtro atual.
+                  </Text>
+                )}
+              </>
             ) : null}
-
-            <Text style={styles.summaryHint}>
-              {buildRouteHint(routeResult, activeFilter)}
-            </Text>
-
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-            <SectionTitle title="Paradas da rota" />
-            {itineraryStops.length > 0 ? (
-              itineraryStops.map((place) => (
-                <PlaceRow
-                  key={`stop-${place.order}`}
-                  leading={String(place.waypoint_order ?? place.order)}
-                  tone={place.category}
-                  title={place.name}
-                  meta={`${CATEGORY_LABELS[place.category]} · ${formatDistanceFromRoute(
-                    place.distance_from_route_m,
-                  )}`}
-                />
-              ))
-            ) : (
-              <Text style={styles.emptySectionText}>
-                {routeResult?.route.mode === "direct_fallback"
-                  ? "Nenhuma parada entrou na rota ativa. Os pontos abaixo seguem como sugestoes."
-                  : "Nenhuma parada confirmada nesta rota."}
-              </Text>
-            )}
-
-            <SectionTitle title="Sugestoes extras" />
-            {extraSuggestions.length > 0 ? (
-              extraSuggestions.map((place) => (
-                <PlaceRow
-                  key={`extra-${place.order}`}
-                  leading={CATEGORY_SHORT_LABELS[place.category]}
-                  tone={place.category}
-                  title={place.name}
-                  meta={`${CATEGORY_LABELS[place.category]} · ${formatDistanceFromRoute(
-                    place.distance_from_route_m,
-                  )}`}
-                />
-              ))
-            ) : (
-              <Text style={styles.emptySectionText}>
-                Nao ha sugestoes extras para o filtro atual.
-              </Text>
-            )}
           </ScrollView>
         </Animated.View>
       </View>
@@ -517,27 +524,6 @@ function buildMapLabel(
     typeof waypointOrder === "number" ? `${waypointOrder}. ` : "";
   const categoryLabel = category ? ` · ${CATEGORY_LABELS[category]}` : "";
   return `${prefix}${name}${categoryLabel}`;
-}
-
-function buildRouteHint(
-  routeResult: TourRouteResponse | null,
-  activeFilter: FilterKey,
-): string {
-  if (!routeResult) {
-    return "O mapa carrega automaticamente a rota da Paulista para a demonstracao.";
-  }
-
-  if (routeResult.route.mode === "tour") {
-    return `Filtro atual: ${
-      activeFilter === "all" ? "Todos" : CATEGORY_LABELS[activeFilter]
-    }. A rota turistica usa uma caminhada livre entre os pontos, e a linha direta do mapa de ruas segue guardada no payload para comparacao.`;
-  }
-
-  if (routeResult.route.places_to_pass.length > 0) {
-    return "Usando a rota direta como fallback. Os pontos seguem como sugestoes proximas do trajeto.";
-  }
-
-  return "Sem paradas disponiveis nesta rota agora.";
 }
 
 function getMapCenter(routeResult: TourRouteResponse | null): LatLng {
@@ -813,6 +799,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing.sm,
   },
+  summaryActions: {
+    alignItems: "flex-end",
+    gap: spacing.xs,
+  },
   summaryEyebrow: {
     fontSize: 11,
     fontWeight: "700",
@@ -840,10 +830,19 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: colors.primaryDark,
   },
-  summaryRouteText: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    lineHeight: 18,
+  summaryToggleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceAlt,
+  },
+  summaryToggleText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textPrimary,
   },
   metricsRow: {
     flexDirection: "row",
@@ -868,16 +867,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.4,
-  },
-  compareText: {
-    ...typography.caption,
-    color: colors.textPrimary,
-    lineHeight: 18,
-  },
-  summaryHint: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    lineHeight: 18,
   },
   errorText: {
     ...typography.caption,
