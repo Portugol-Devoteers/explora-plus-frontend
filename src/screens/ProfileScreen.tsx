@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -8,73 +9,43 @@ import {
   Text,
   View,
 } from "react-native";
-import Animated, {
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from "react-native-reanimated";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../context/AuthContext";
 import { fetchMe, type Me } from "../services/me";
 import { colors, radius, spacing, typography } from "../theme";
 
-type MenuItem = {
-  icon: React.ComponentProps<typeof Ionicons>["name"];
-  label: string;
-  trailing?: string;
-};
-
-type MenuGroup = {
-  title: string;
-  items: MenuItem[];
-};
-
-const MENU: MenuGroup[] = [
-  {
-    title: "Conta",
-    items: [
-      { icon: "person-circle-outline", label: "Editar perfil" },
-      { icon: "language-outline", label: "Idioma", trailing: "Português" },
-      { icon: "notifications-outline", label: "Notificações" },
-    ],
-  },
-  {
-    title: "Atividade",
-    items: [
-      { icon: "bookmark-outline", label: "Favoritos" },
-      { icon: "time-outline", label: "Histórico de buscas" },
-    ],
-  },
-  {
-    title: "Sobre",
-    items: [
-      { icon: "information-circle-outline", label: "Sobre o Explora+" },
-      { icon: "document-text-outline", label: "Termos de uso" },
-      { icon: "shield-checkmark-outline", label: "Política de privacidade" },
-    ],
-  },
-];
-
 export function ProfileScreen() {
   const { signOut, user } = useAuth();
   const [me, setMe] = useState<Me | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
+
     fetchMe()
       .then((data) => {
-        if (active) setMe(data);
+        if (active) {
+          setMe(data);
+        }
       })
       .catch(() => {
-        if (active) setMe(null);
+        if (active) {
+          setMe(null);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
       });
+
     return () => {
       active = false;
     };
   }, []);
 
-  const displayName = me?.name ?? user?.username ?? "Usuário";
+  const displayName = me?.name ?? user?.username ?? "Usuario";
   const displayEmail = me?.email ?? user?.email ?? "";
   const memberSince = me?.memberSince ?? "";
   const avatarUrl =
@@ -82,7 +53,6 @@ export function ProfileScreen() {
     `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(
       displayName,
     )}&backgroundColor=ff6b35`;
-  const stats = me?.stats ?? { routes: 0, placesVisited: 0, tickets: 0 };
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -94,127 +64,44 @@ export function ProfileScreen() {
           entering={FadeInDown.duration(420).springify().damping(18)}
           style={styles.profileCard}
         >
-          <View style={styles.profileTop}>
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-            <View style={styles.profileText}>
-              <Text style={styles.profileName}>{displayName}</Text>
-              <Text style={styles.profileEmail}>{displayEmail}</Text>
-              {memberSince ? (
-                <Text style={styles.profileSince}>{memberSince}</Text>
-              ) : null}
-            </View>
-            <Pressable
-              style={({ pressed }) => [
-                styles.editBtn,
-                pressed && styles.pressedSoft,
-              ]}
-              accessibilityLabel="Editar perfil"
-              hitSlop={8}
-            >
-              <Ionicons name="pencil" size={16} color={colors.primary} />
-            </Pressable>
+          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+
+          <Text style={styles.profileName}>{displayName}</Text>
+          <Text style={styles.profileEmail}>{displayEmail}</Text>
+          {memberSince ? (
+            <Text style={styles.profileSince}>{memberSince}</Text>
+          ) : null}
+
+          <View style={styles.noteCard}>
+            <Text style={styles.noteTitle}>Perfil enxuto para o MVP</Text>
+            <Text style={styles.noteText}>
+              Hoje o foco da entrega esta em autenticacao, rota turistica e mapa com
+              pontos de interesse.
+            </Text>
           </View>
 
-          <View style={styles.statsRow}>
-            <StatCell label="Rotas" value={stats.routes} />
-            <View style={styles.statDivider} />
-            <StatCell label="Lugares" value={stats.placesVisited} />
-            <View style={styles.statDivider} />
-            <StatCell label="Ingressos" value={stats.tickets} />
-          </View>
+          {loading ? (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.loadingText}>Carregando dados da conta...</Text>
+            </View>
+          ) : null}
         </Animated.View>
 
-        {MENU.map((group, gi) => (
-          <Animated.View
-            key={group.title}
-            entering={FadeInDown.delay(120 + gi * 60)
-              .duration(360)
-              .springify()}
-            style={styles.group}
+        <Animated.View entering={FadeInDown.delay(120).duration(380).springify()}>
+          <Pressable
+            onPress={signOut}
+            style={({ pressed }) => [
+              styles.logoutBtn,
+              pressed && styles.logoutPressed,
+            ]}
           >
-            <Text style={styles.groupTitle}>{group.title}</Text>
-            <View style={styles.groupCard}>
-              {group.items.map((item, i) => (
-                <View key={item.label}>
-                  <MenuRow item={item} />
-                  {i < group.items.length - 1 && (
-                    <View style={styles.menuDivider} />
-                  )}
-                </View>
-              ))}
-            </View>
-          </Animated.View>
-        ))}
-
-        <Animated.View
-          entering={FadeInDown.delay(380).duration(380).springify()}
-        >
-          <LogoutButton onPress={signOut} />
+            <Ionicons name="log-out-outline" size={18} color={colors.error} />
+            <Text style={styles.logoutText}>Sair da conta</Text>
+          </Pressable>
         </Animated.View>
-
-        <Text style={styles.version}>Explora+ · versão 0.1.0</Text>
       </ScrollView>
     </SafeAreaView>
-  );
-}
-
-function StatCell({ label, value }: { label: string; value: number }) {
-  return (
-    <View style={styles.statCell}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function MenuRow({ item }: { item: MenuItem }) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: withSpring(scale.value, { damping: 18 }) }],
-  }));
-
-  return (
-    <Animated.View style={animStyle}>
-      <Pressable
-        onPressIn={() => (scale.value = 0.985)}
-        onPressOut={() => (scale.value = 1)}
-        style={styles.menuRow}
-      >
-        <View style={styles.menuIconWrap}>
-          <Ionicons name={item.icon} size={18} color={colors.primary} />
-        </View>
-        <Text style={styles.menuLabel}>{item.label}</Text>
-        {item.trailing && (
-          <Text style={styles.menuTrailing}>{item.trailing}</Text>
-        )}
-        <Ionicons
-          name="chevron-forward"
-          size={16}
-          color={colors.textMuted}
-        />
-      </Pressable>
-    </Animated.View>
-  );
-}
-
-function LogoutButton({ onPress }: { onPress: () => void }) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: withSpring(scale.value, { damping: 18 }) }],
-  }));
-
-  return (
-    <Animated.View style={animStyle}>
-      <Pressable
-        onPress={onPress}
-        onPressIn={() => (scale.value = 0.985)}
-        onPressOut={() => (scale.value = 1)}
-        style={styles.logoutBtn}
-      >
-        <Ionicons name="log-out-outline" size={18} color={colors.error} />
-        <Text style={styles.logoutText}>Sair da conta</Text>
-      </Pressable>
-    </Animated.View>
   );
 }
 
@@ -226,132 +113,64 @@ const styles = StyleSheet.create({
   scroll: {
     padding: spacing.lg,
     paddingBottom: spacing.xl,
+    gap: spacing.lg,
   },
   profileCard: {
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
-  },
-  profileTop: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: spacing.md,
-    marginBottom: spacing.md,
+    gap: spacing.sm,
   },
   avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     backgroundColor: colors.surfaceMuted,
-  },
-  profileText: {
-    flex: 1,
+    marginBottom: spacing.xs,
   },
   profileName: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: "700",
     color: colors.textPrimary,
   },
   profileEmail: {
-    fontSize: 13,
+    ...typography.body,
     color: colors.textSecondary,
-    marginTop: 2,
   },
   profileSince: {
-    fontSize: 11,
+    ...typography.caption,
     color: colors.textMuted,
-    marginTop: 4,
   },
-  editBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pressedSoft: {
-    opacity: 0.75,
-    transform: [{ scale: 0.94 }],
-  },
-  statsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
+  noteCard: {
+    width: "100%",
+    marginTop: spacing.md,
     borderRadius: radius.md,
-    paddingVertical: spacing.sm,
-  },
-  statCell: {
-    flex: 1,
-    alignItems: "center",
-  },
-  statValue: {
-    ...typography.title,
-    fontSize: 20,
-    color: colors.textPrimary,
-  },
-  statLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  statDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: colors.divider,
-  },
-  group: {
-    marginBottom: spacing.lg,
-  },
-  groupTitle: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-    marginBottom: spacing.sm,
-    marginLeft: spacing.xs,
-  },
-  groupCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: "hidden",
-  },
-  menuRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-  },
-  menuIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.sm,
     backgroundColor: colors.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
+    padding: spacing.md,
+    gap: spacing.xs,
   },
-  menuLabel: {
-    flex: 1,
+  noteTitle: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
+    color: colors.primaryDark,
+  },
+  noteText: {
+    ...typography.caption,
     color: colors.textPrimary,
+    lineHeight: 18,
   },
-  menuTrailing: {
-    fontSize: 13,
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  loadingText: {
+    ...typography.caption,
     color: colors.textSecondary,
-  },
-  menuDivider: {
-    height: 1,
-    backgroundColor: colors.divider,
-    marginLeft: spacing.md + 36 + spacing.md,
   },
   logoutBtn: {
     flexDirection: "row",
@@ -363,16 +182,14 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-    marginBottom: spacing.md,
+  },
+  logoutPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.99 }],
   },
   logoutText: {
     fontSize: 14,
     fontWeight: "700",
     color: colors.error,
-  },
-  version: {
-    textAlign: "center",
-    fontSize: 11,
-    color: colors.textMuted,
   },
 });

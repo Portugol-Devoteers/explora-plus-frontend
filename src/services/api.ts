@@ -44,8 +44,9 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
 
   if (!res.ok) {
     const message =
-      (data && typeof data === "object" && extractMessage(data)) ||
-      `Erro ${res.status} em ${path}`;
+      data && typeof data === "object"
+        ? extractMessage(data) ?? `Erro ${res.status} em ${path}`
+        : `Erro ${res.status} em ${path}`;
     throw new ApiError(message, res.status, data);
   }
 

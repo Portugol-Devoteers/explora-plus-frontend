@@ -1,9 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { ExploreScreen } from "../screens/ExploreScreen";
-import { MyRoutesScreen } from "../screens/MyRoutesScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
-import { TicketsScreen } from "../screens/TicketsScreen";
 import { colors } from "../theme";
 import type { RootTabParamList } from "./types";
 
@@ -13,15 +11,11 @@ type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 const TAB_ICONS: Record<keyof RootTabParamList, IoniconName> = {
   Explore: "compass-outline",
-  MyRoutes: "git-branch-outline",
-  Tickets: "ticket-outline",
   Profile: "person-outline",
 };
 
 const TAB_LABELS: Record<keyof RootTabParamList, string> = {
   Explore: "Explorar",
-  MyRoutes: "Minhas Rotas",
-  Tickets: "Ingressos",
   Profile: "Perfil",
 };
 
@@ -51,8 +45,6 @@ export function TabNavigator() {
       })}
     >
       <Tab.Screen name="Explore" component={ExploreScreen} />
-      <Tab.Screen name="MyRoutes" component={MyRoutesScreen} />
-      <Tab.Screen name="Tickets" component={TicketsScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );

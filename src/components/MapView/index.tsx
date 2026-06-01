@@ -2,19 +2,30 @@ import { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
 import { buildMapHtml } from "./html";
-import type { MapViewProps } from "./types";
+import type { MapPolyline, MapViewProps } from "./types";
 
 export function MapView({
   center,
   zoom = 14,
   markers = [],
   polyline = [],
+  polylines = [],
   onMarkerPress,
   style,
 }: MapViewProps) {
+  const normalizedPolylines = useMemo<MapPolyline[]>(
+    () =>
+      polylines.length > 0
+        ? polylines
+        : polyline.length > 0
+          ? [{ id: "legacy-route", points: polyline, kind: "legacy" }]
+          : [],
+    [polylines, polyline],
+  );
+
   const html = useMemo(
-    () => buildMapHtml({ center, zoom, markers, polyline }),
-    [center, zoom, markers, polyline],
+    () => buildMapHtml({ center, zoom, markers, polylines: normalizedPolylines }),
+    [center, zoom, markers, normalizedPolylines],
   );
 
   return (
@@ -46,4 +57,4 @@ const styles = StyleSheet.create({
   web: { flex: 1, backgroundColor: "transparent" },
 });
 
-export type { LatLng, MapMarker, MapViewProps } from "./types";
+export type { LatLng, MapMarker, MapPolyline, MapViewProps } from "./types";

@@ -2,8 +2,6 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 export type RootTabParamList = {
   Explore: undefined;
-  MyRoutes: undefined;
-  Tickets: undefined;
   Profile: undefined;
 };
 
