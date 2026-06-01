@@ -15,6 +15,7 @@ import {
   LoginPayload,
   RegisterPayload,
   login as loginRequest,
+  refresh as refreshRequest,
   register as registerRequest,
 } from "../services/auth";
 import { storage } from "../services/storage";
@@ -51,17 +52,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         storage.get(REFRESH_KEY),
         storage.get(USER_KEY),
       ]);
-      if (access && refresh) {
-        accessRef.current = access;
+
+      if (!refresh) {
+        accessRef.current = null;
+        setUser(null);
+        setStatus("anonymous");
+        return;
+      }
+
+      try {
+        const { access: nextAccess } = await refreshRequest(refresh);
+        accessRef.current = nextAccess;
+        await storage.set(ACCESS_KEY, nextAccess);
+
         if (userJson) {
           try {
             setUser(JSON.parse(userJson) as AuthUser);
           } catch {
-            // ignore parse errors
+            setUser(null);
           }
+        } else {
+          setUser(null);
         }
+
         setStatus("authenticated");
-      } else {
+      } catch {
+        accessRef.current = null;
+        await Promise.all([
+          storage.remove(ACCESS_KEY),
+          storage.remove(REFRESH_KEY),
+          storage.remove(USER_KEY),
+        ]);
+        setUser(null);
         setStatus("anonymous");
       }
     })();
