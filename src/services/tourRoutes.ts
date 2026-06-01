@@ -14,6 +14,7 @@ export type TourRouteResolvedPoint = {
 };
 
 export type TourRoutePlaceToPass = {
+  stop_id: string;
   order: number;
   name: string;
   category: TourRouteCategory;
@@ -31,6 +32,7 @@ export type TourRouteSummary = {
 };
 
 export type TourRoutePayload = {
+  saved_route_id?: number | null;
   mode: TourRouteMode;
   origin: TourRouteResolvedPoint;
   destination: TourRouteResolvedPoint;
@@ -53,6 +55,7 @@ export type TourRouteMapGeometry =
 
 export type TourRouteMapFeatureProperties = {
   kind: "route_tour" | "route_direct" | "origin" | "destination" | "stop" | "poi";
+  stop_id?: string;
   active?: boolean;
   label?: string;
   order?: number;
@@ -93,6 +96,17 @@ export async function planTourRoute(
   return api<TourRouteResponse>("/api/tour-routes/", {
     method: "POST",
     body: payload,
-    auth: false,
   });
+}
+
+export async function removeTourRouteStop(
+  savedRouteId: number,
+  stopId: string,
+): Promise<TourRouteResponse> {
+  return api<TourRouteResponse>(
+    `/api/tour-routes/saved/${savedRouteId}/stops/${encodeURIComponent(stopId)}/`,
+    {
+      method: "DELETE",
+    },
+  );
 }

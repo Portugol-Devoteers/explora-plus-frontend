@@ -26,6 +26,7 @@ import {
 } from "../components/MapView";
 import { ApiError } from "../services/api";
 import {
+  removeTourRouteStop,
   planTourRoute,
   type TourRouteCategory,
   type TourRouteMapFeature,
@@ -40,7 +41,7 @@ type MapState = {
   polylines: MapPolyline[];
 };
 
-const DEFAULT_ORIGIN = "Praça Oswaldo Cruz, São Paulo";
+const DEFAULT_ORIGIN = "Praca Oswaldo Cruz, Sao Paulo";
 const DEFAULT_DESTINATION = "Edificio Gilbraltar, 2518, Avenida Paulista, Sao Paulo";
 const DEFAULT_CENTER: LatLng = { lat: -23.562856, lng: -46.654011 };
 const DEFAULT_ZOOM = 14;
@@ -147,6 +148,42 @@ export function ExploreScreen() {
   const mapCenter = getMapCenter(routeResult);
   const routeDistance = routeResult ? formatDistance(routeResult.route.distance_m) : "--";
   const routeDuration = routeResult ? formatDuration(routeResult.route.duration_s) : "--";
+  const savedRouteId = routeResult?.route.saved_route_id ?? null;
+
+  async function removeStop(stopId: string) {
+    if (!savedRouteId) {
+      return;
+    }
+
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await removeTourRouteStop(savedRouteId, stopId);
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+      setRouteResult(data);
+    } catch (caughtError) {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+      if (caughtError instanceof ApiError) {
+        setError(caughtError.message);
+      } else if (caughtError instanceof Error) {
+        setError(caughtError.message);
+      } else {
+        setError("Nao foi possivel atualizar a rota agora.");
+      }
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
+    }
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -332,13 +369,20 @@ export function ExploreScreen() {
                 {itineraryStops.length > 0 ? (
                   itineraryStops.map((place) => (
                     <PlaceRow
-                      key={`stop-${place.order}`}
+                      key={`stop-${place.stop_id}`}
                       leading={String(place.waypoint_order ?? place.order)}
                       tone={place.category}
                       title={place.name}
-                      meta={`${CATEGORY_LABELS[place.category]} · ${formatDistanceFromRoute(
+                      meta={`${CATEGORY_LABELS[place.category]} - ${formatDistanceFromRoute(
                         place.distance_from_route_m,
                       )}`}
+                      onRemove={
+                        savedRouteId && place.stop_id
+                          ? () => {
+                              void removeStop(place.stop_id);
+                            }
+                          : undefined
+                      }
                     />
                   ))
                 ) : (
@@ -353,11 +397,11 @@ export function ExploreScreen() {
                 {extraSuggestions.length > 0 ? (
                   extraSuggestions.map((place) => (
                     <PlaceRow
-                      key={`extra-${place.order}`}
+                      key={`extra-${place.stop_id}`}
                       leading={CATEGORY_SHORT_LABELS[place.category]}
                       tone={place.category}
                       title={place.name}
-                      meta={`${CATEGORY_LABELS[place.category]} · ${formatDistanceFromRoute(
+                      meta={`${CATEGORY_LABELS[place.category]} - ${formatDistanceFromRoute(
                         place.distance_from_route_m,
                       )}`}
                     />
@@ -522,7 +566,7 @@ function buildMapLabel(
 
   const prefix =
     typeof waypointOrder === "number" ? `${waypointOrder}. ` : "";
-  const categoryLabel = category ? ` · ${CATEGORY_LABELS[category]}` : "";
+  const categoryLabel = category ? ` - ${CATEGORY_LABELS[category]}` : "";
   return `${prefix}${name}${categoryLabel}`;
 }
 
@@ -618,11 +662,13 @@ function PlaceRow({
   tone,
   title,
   meta,
+  onRemove,
 }: {
   leading: string;
   tone: TourRouteCategory;
   title: string;
   meta: string;
+  onRemove?: () => void;
 }) {
   return (
     <View style={styles.placeRow}>
@@ -639,6 +685,19 @@ function PlaceRow({
         <Text style={styles.placeTitle}>{title}</Text>
         <Text style={styles.placeMeta}>{meta}</Text>
       </View>
+
+      {onRemove ? (
+        <Pressable
+          onPress={onRemove}
+          style={({ pressed }) => [
+            styles.placeRemoveButton,
+            pressed && styles.collapseButtonPressed,
+          ]}
+          accessibilityLabel={`Remover parada ${title}`}
+        >
+          <Ionicons name="close" size={16} color={colors.textSecondary} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -904,6 +963,14 @@ const styles = StyleSheet.create({
   placeTextWrap: {
     flex: 1,
     gap: 2,
+  },
+  placeRemoveButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.background,
   },
   placeTitle: {
     fontSize: 14,
