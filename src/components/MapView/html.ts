@@ -68,6 +68,7 @@ export function buildMapHtml(opts: {
       lng: marker.lng,
       kind: marker.kind ?? "poi",
       category: marker.category ?? null,
+      state: marker.state ?? "active",
       badge: marker.badge ?? "",
       label: marker.label ?? "",
     })),
@@ -113,6 +114,9 @@ export function buildMapHtml(opts: {
     line-height: 1;
     box-shadow: 0 4px 10px rgba(0,0,0,0.22);
     transform: translate(-50%, -50%);
+  }
+  .pin.visited {
+    opacity: 0.5;
   }
   .pin.stop {
     width: 38px;
@@ -196,7 +200,8 @@ export function buildMapHtml(opts: {
         content = categoryStyle.icon;
       }
 
-      var html = '<div class="pin ' + kind + '" style="background:' + background + '; border: 2px solid ' + kindStyle.ring + ';">' + (kind === "user" ? "" : content) + '</div>';
+      var stateClass = markerData.state === "visited" ? " visited" : "";
+      var html = '<div class="pin ' + kind + stateClass + '" style="background:' + background + '; border: 2px solid ' + kindStyle.ring + ';">' + (kind === "user" ? "" : content) + '</div>';
       var size = kind === "user" ? [18, 18] : kind === "stop" ? [38, 38] : kind === "origin" || kind === "destination" ? [36, 36] : [34, 34];
 
       return L.divIcon({

@@ -2,6 +2,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,12 +28,16 @@ import {
 } from "../components/MapView";
 import { ApiError } from "../services/api";
 import {
-  removeTourRouteStop,
+  fetchTourRoutePoiDetail,
   planTourRoute,
+  removeTourRouteStop,
+  updateTourRouteStopState,
   type TourRouteCategory,
   type TourRouteMapFeature,
   type TourRoutePlaceToPass,
+  type TourRoutePoiDetail,
   type TourRouteResponse,
+  type TourRouteStopState,
 } from "../services/tourRoutes";
 import { colors, radius, spacing, typography } from "../theme";
 
@@ -80,12 +86,36 @@ export function ExploreScreen() {
   const [routeResult, setRouteResult] = useState<TourRouteResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
+  const [detailCache, setDetailCache] = useState<Record<string, TourRoutePoiDetail>>(
+    {},
+  );
+  const [detailLoadingStopId, setDetailLoadingStopId] = useState<string | null>(
+    null,
+  );
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailActionLoading, setDetailActionLoading] = useState(false);
   const requestIdRef = useRef(0);
+  const detailRequestIdRef = useRef(0);
   const destinationInputRef = useRef<TextInput | null>(null);
 
   useEffect(() => {
     void submitRoute(DEFAULT_ORIGIN, DEFAULT_DESTINATION);
   }, []);
+
+  useEffect(() => {
+    if (!selectedStopId) {
+      return;
+    }
+    const stillVisible = (routeResult?.route.places_to_pass ?? []).some(
+      (place) => place.stop_id === selectedStopId,
+    );
+    if (!stillVisible) {
+      setSelectedStopId(null);
+      setDetailError(null);
+      setDetailLoadingStopId(null);
+    }
+  }, [routeResult, selectedStopId]);
 
   async function submitRoute(originValue = origin, destinationValue = destination) {
     const nextOrigin = originValue.trim();
@@ -135,20 +165,74 @@ export function ExploreScreen() {
   const routeOriginLabel = routeResult?.route.origin.label ?? origin;
   const routeDestinationLabel = routeResult?.route.destination.label ?? destination;
   const routePlaces = routeResult?.route.places_to_pass ?? [];
-  const itineraryStops = [...routePlaces]
-    .filter((place) => place.included_in_route)
+  const visiblePlaces = routePlaces.filter((place) => matchesFilter(place, activeFilter));
+  const itineraryStops = [...visiblePlaces]
+    .filter((place) => place.included_in_route && place.state === "active")
     .sort((left, right) => {
       const leftOrder = left.waypoint_order ?? Number.MAX_SAFE_INTEGER;
       const rightOrder = right.waypoint_order ?? Number.MAX_SAFE_INTEGER;
       return leftOrder - rightOrder;
     });
-  const visiblePlaces = routePlaces.filter((place) => matchesFilter(place, activeFilter));
-  const extraSuggestions = visiblePlaces.filter((place) => !place.included_in_route);
+  const visitedStops = visiblePlaces.filter((place) => place.state === "visited");
+  const extraSuggestions = visiblePlaces.filter(
+    (place) => place.state === "active" && !place.included_in_route,
+  );
   const mapState = buildMapState(routeResult, activeFilter);
   const mapCenter = getMapCenter(routeResult);
   const routeDistance = routeResult ? formatDistance(routeResult.route.distance_m) : "--";
   const routeDuration = routeResult ? formatDuration(routeResult.route.duration_s) : "--";
   const savedRouteId = routeResult?.route.saved_route_id ?? null;
+  const selectedPlace =
+    selectedStopId == null
+      ? null
+      : routePlaces.find((place) => place.stop_id === selectedStopId) ?? null;
+  const selectedDetail =
+    selectedStopId == null ? null : detailCache[selectedStopId] ?? null;
+  const isDetailLoading = detailLoadingStopId === selectedStopId;
+
+  async function openPlaceDetail(stopId: string) {
+    const exists = routePlaces.some((place) => place.stop_id === stopId);
+    if (!exists) {
+      return;
+    }
+
+    setSelectedStopId(stopId);
+    setDetailError(null);
+
+    if (detailCache[stopId]) {
+      return;
+    }
+
+    const requestId = detailRequestIdRef.current + 1;
+    detailRequestIdRef.current = requestId;
+    setDetailLoadingStopId(stopId);
+
+    try {
+      const detail = await fetchTourRoutePoiDetail(stopId);
+      if (requestId !== detailRequestIdRef.current) {
+        return;
+      }
+      setDetailCache((current) => ({
+        ...current,
+        [stopId]: detail,
+      }));
+    } catch (caughtError) {
+      if (requestId !== detailRequestIdRef.current) {
+        return;
+      }
+      if (caughtError instanceof ApiError) {
+        setDetailError(caughtError.message);
+      } else if (caughtError instanceof Error) {
+        setDetailError(caughtError.message);
+      } else {
+        setDetailError("Nao foi possivel carregar os detalhes agora.");
+      }
+    } finally {
+      if (requestId === detailRequestIdRef.current) {
+        setDetailLoadingStopId(null);
+      }
+    }
+  }
 
   async function removeStop(stopId: string) {
     if (!savedRouteId) {
@@ -160,9 +244,56 @@ export function ExploreScreen() {
 
     setLoading(true);
     setError(null);
+    setDetailActionLoading(true);
 
     try {
       const data = await removeTourRouteStop(savedRouteId, stopId);
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+      setRouteResult(data);
+      if (selectedStopId === stopId) {
+        setSelectedStopId(null);
+      }
+    } catch (caughtError) {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+      if (caughtError instanceof ApiError) {
+        setError(caughtError.message);
+      } else if (caughtError instanceof Error) {
+        setError(caughtError.message);
+      } else {
+        setError("Nao foi possivel atualizar a rota agora.");
+      }
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
+      setDetailActionLoading(false);
+    }
+  }
+
+  async function toggleVisitedState(place: TourRoutePlaceToPass) {
+    if (!savedRouteId) {
+      return;
+    }
+
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    const nextState: TourRouteStopState =
+      place.state === "visited" ? "active" : "visited";
+
+    setLoading(true);
+    setError(null);
+    setDetailActionLoading(true);
+
+    try {
+      const data = await updateTourRouteStopState(
+        savedRouteId,
+        place.stop_id,
+        nextState,
+      );
       if (requestId !== requestIdRef.current) {
         return;
       }
@@ -182,6 +313,7 @@ export function ExploreScreen() {
       if (requestId === requestIdRef.current) {
         setLoading(false);
       }
+      setDetailActionLoading(false);
     }
   }
 
@@ -305,6 +437,9 @@ export function ExploreScreen() {
           zoom={DEFAULT_ZOOM}
           markers={mapState.markers}
           polylines={mapState.polylines}
+          onMarkerPress={(stopId) => {
+            void openPlaceDetail(stopId);
+          }}
           style={styles.map}
         />
 
@@ -373,16 +508,11 @@ export function ExploreScreen() {
                       leading={String(place.waypoint_order ?? place.order)}
                       tone={place.category}
                       title={place.name}
-                      meta={`${CATEGORY_LABELS[place.category]} - ${formatDistanceFromRoute(
-                        place.distance_from_route_m,
-                      )}`}
-                      onRemove={
-                        savedRouteId && place.stop_id
-                          ? () => {
-                              void removeStop(place.stop_id);
-                            }
-                          : undefined
-                      }
+                      meta={buildPlaceMeta(place)}
+                      state={place.state}
+                      onPress={() => {
+                        void openPlaceDetail(place.stop_id);
+                      }}
                     />
                   ))
                 ) : (
@@ -393,6 +523,25 @@ export function ExploreScreen() {
                   </Text>
                 )}
 
+                {visitedStops.length > 0 ? (
+                  <>
+                    <SectionTitle title="Ja visitados" />
+                    {visitedStops.map((place) => (
+                      <PlaceRow
+                        key={`visited-${place.stop_id}`}
+                        leading={CATEGORY_SHORT_LABELS[place.category]}
+                        tone={place.category}
+                        title={place.name}
+                        meta={`Ja visitado - ${buildPlaceMeta(place)}`}
+                        state={place.state}
+                        onPress={() => {
+                          void openPlaceDetail(place.stop_id);
+                        }}
+                      />
+                    ))}
+                  </>
+                ) : null}
+
                 <SectionTitle title="Sugestoes extras" />
                 {extraSuggestions.length > 0 ? (
                   extraSuggestions.map((place) => (
@@ -401,9 +550,11 @@ export function ExploreScreen() {
                       leading={CATEGORY_SHORT_LABELS[place.category]}
                       tone={place.category}
                       title={place.name}
-                      meta={`${CATEGORY_LABELS[place.category]} - ${formatDistanceFromRoute(
-                        place.distance_from_route_m,
-                      )}`}
+                      meta={buildPlaceMeta(place)}
+                      state={place.state}
+                      onPress={() => {
+                        void openPlaceDetail(place.stop_id);
+                      }}
                     />
                   ))
                 ) : (
@@ -416,6 +567,177 @@ export function ExploreScreen() {
           </ScrollView>
         </Animated.View>
       </View>
+
+      <Modal
+        visible={selectedStopId != null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedStopId(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setSelectedStopId(null)}
+          />
+
+          <View style={styles.modalCard}>
+            <ScrollView
+              contentContainerStyle={styles.modalContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.modalHeader}>
+                <View style={styles.modalHeaderCopy}>
+                  <Text style={styles.summaryEyebrow}>Ponto de interesse</Text>
+                  <Text style={styles.modalTitle}>
+                    {selectedDetail?.name ?? selectedPlace?.name ?? "Detalhe do ponto"}
+                  </Text>
+                </View>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.modalCloseButton,
+                    pressed && styles.collapseButtonPressed,
+                  ]}
+                  onPress={() => setSelectedStopId(null)}
+                  accessibilityLabel="Fechar detalhes"
+                >
+                  <Ionicons name="close" size={18} color={colors.textPrimary} />
+                </Pressable>
+              </View>
+
+              <View style={styles.modalImageShell}>
+                {selectedDetail?.image_url ? (
+                  <Image
+                    source={{ uri: selectedDetail.image_url }}
+                    style={styles.modalImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.modalImagePlaceholder,
+                      {
+                        backgroundColor: selectedPlace
+                          ? CATEGORY_COLORS[selectedPlace.category]
+                          : colors.surfaceAlt,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.modalImagePlaceholderText}>
+                      {selectedPlace
+                        ? CATEGORY_SHORT_LABELS[selectedPlace.category]
+                        : "POI"}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {selectedPlace ? (
+                <View style={styles.modalMetaRow}>
+                  <View
+                    style={[
+                      styles.categoryPill,
+                      { backgroundColor: CATEGORY_COLORS[selectedPlace.category] },
+                    ]}
+                  >
+                    <Text style={styles.categoryPillText}>
+                      {CATEGORY_LABELS[selectedPlace.category]}
+                    </Text>
+                  </View>
+
+                  {selectedPlace.state === "visited" ? (
+                    <View style={styles.visitedPill}>
+                      <Text style={styles.visitedPillText}>Ja visitado</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {isDetailLoading ? (
+                <View style={styles.detailLoadingWrap}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={styles.detailLoadingText}>
+                    Carregando detalhes do local...
+                  </Text>
+                </View>
+              ) : null}
+
+              {detailError ? <Text style={styles.errorText}>{detailError}</Text> : null}
+
+              <DetailLine
+                label="Endereco"
+                value={
+                  selectedDetail?.address ||
+                  selectedPlace?.name ||
+                  "Endereco nao informado."
+                }
+              />
+              <DetailLine
+                label="Resumo"
+                value={
+                  selectedDetail?.summary ||
+                  "Sem resumo salvo para este ponto ainda."
+                }
+              />
+              {selectedDetail?.opening_hours ? (
+                <DetailLine label="Horario" value={selectedDetail.opening_hours} />
+              ) : null}
+              {selectedDetail?.website ? (
+                <DetailLine label="Website" value={selectedDetail.website} />
+              ) : null}
+              {selectedDetail?.source_url ? (
+                <DetailLine label="Fonte" value={selectedDetail.source_url} />
+              ) : null}
+
+              {selectedPlace && savedRouteId ? (
+                <View style={styles.modalActionGroup}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.modalSecondaryButton,
+                      pressed && styles.collapseButtonPressed,
+                      detailActionLoading && styles.disabledButton,
+                    ]}
+                    onPress={() => {
+                      void toggleVisitedState(selectedPlace);
+                    }}
+                    disabled={detailActionLoading}
+                  >
+                    <Ionicons
+                      name={
+                        selectedPlace.state === "visited"
+                          ? "reload-outline"
+                          : "checkmark-done-outline"
+                      }
+                      size={18}
+                      color={colors.textPrimary}
+                    />
+                    <Text style={styles.modalSecondaryButtonText}>
+                      {selectedPlace.state === "visited"
+                        ? "Desmarcar visitado"
+                        : "Marcar como visitado"}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.modalDangerButton,
+                      pressed && styles.collapseButtonPressed,
+                      detailActionLoading && styles.disabledButton,
+                    ]}
+                    onPress={() => {
+                      void removeStop(selectedPlace.stop_id);
+                    }}
+                    disabled={detailActionLoading}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={colors.textOnPrimary} />
+                    <Text style={styles.modalDangerButtonText}>Excluir da rota</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -432,10 +754,10 @@ function buildMapState(
     return { markers: [], polylines: [] };
   }
 
-  const visibleOrders = new Set(
+  const visibleStopIds = new Set(
     routeResult.route.places_to_pass
       .filter((place) => matchesFilter(place, activeFilter))
-      .map((place) => place.order),
+      .map((place) => place.stop_id),
   );
 
   const markers: MapMarker[] = [];
@@ -457,7 +779,7 @@ function buildMapState(
       return;
     }
 
-    const marker = mapFeatureToMarker(feature, visibleOrders);
+    const marker = mapFeatureToMarker(feature, visibleStopIds);
     if (marker) {
       markers.push(marker);
     }
@@ -503,7 +825,7 @@ function mapFeatureToPolyline(feature: TourRouteMapFeature): MapPolyline | null 
 
 function mapFeatureToMarker(
   feature: TourRouteMapFeature,
-  visibleOrders: Set<number>,
+  visibleStopIds: Set<string>,
 ): MapMarker | null {
   if (feature.geometry.type !== "Point") {
     return null;
@@ -528,8 +850,8 @@ function mapFeatureToMarker(
   }
 
   if (
-    typeof feature.properties.order !== "number" ||
-    !visibleOrders.has(feature.properties.order)
+    typeof feature.properties.stop_id !== "string" ||
+    !visibleStopIds.has(feature.properties.stop_id)
   ) {
     return null;
   }
@@ -540,18 +862,26 @@ function mapFeatureToMarker(
     feature.properties.category === "food"
       ? feature.properties.category
       : undefined;
+  const state =
+    feature.properties.state === "visited" ? "visited" : "active";
 
   return {
-    id: `${kind}-${feature.properties.order}`,
+    id: feature.properties.stop_id,
     lat,
     lng,
     kind,
     category,
+    state,
     badge:
       kind === "stop" && typeof feature.properties.waypoint_order === "number"
         ? String(feature.properties.waypoint_order)
         : undefined,
-    label: buildMapLabel(feature.properties.name, category, feature.properties.waypoint_order),
+    label: buildMapLabel(
+      feature.properties.name,
+      category,
+      feature.properties.waypoint_order,
+      state,
+    ),
   };
 }
 
@@ -559,15 +889,16 @@ function buildMapLabel(
   name: string | undefined,
   category: TourRouteCategory | undefined,
   waypointOrder: number | null | undefined,
+  state: TourRouteStopState,
 ): string {
   if (!name) {
     return "";
   }
 
-  const prefix =
-    typeof waypointOrder === "number" ? `${waypointOrder}. ` : "";
+  const prefix = typeof waypointOrder === "number" ? `${waypointOrder}. ` : "";
   const categoryLabel = category ? ` - ${CATEGORY_LABELS[category]}` : "";
-  return `${prefix}${name}${categoryLabel}`;
+  const stateLabel = state === "visited" ? " - Ja visitado" : "";
+  return `${prefix}${name}${categoryLabel}${stateLabel}`;
 }
 
 function getMapCenter(routeResult: TourRouteResponse | null): LatLng {
@@ -606,6 +937,12 @@ function formatDistanceFromRoute(distanceM: number): string {
   }
 
   return `${distanceM} m da rota`;
+}
+
+function buildPlaceMeta(place: TourRoutePlaceToPass): string {
+  return `${CATEGORY_LABELS[place.category]} - ${formatDistanceFromRoute(
+    place.distance_from_route_m,
+  )}`;
 }
 
 function FilterChip({
@@ -657,25 +994,45 @@ function SectionTitle({ title }: { title: string }) {
   return <Text style={styles.sectionTitle}>{title}</Text>;
 }
 
+function DetailLine({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.detailLine}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+}
+
 function PlaceRow({
   leading,
   tone,
   title,
   meta,
-  onRemove,
+  state,
+  onPress,
 }: {
   leading: string;
   tone: TourRouteCategory;
   title: string;
   meta: string;
-  onRemove?: () => void;
+  state: TourRouteStopState;
+  onPress?: () => void;
 }) {
   return (
-    <View style={styles.placeRow}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.placeRow,
+        state === "visited" && styles.placeRowVisited,
+        pressed && styles.collapseButtonPressed,
+      ]}
+      accessibilityLabel={`Abrir detalhes de ${title}`}
+    >
       <View
         style={[
           styles.placeLeading,
           { backgroundColor: CATEGORY_COLORS[tone] },
+          state === "visited" && styles.placeLeadingVisited,
         ]}
       >
         <Text style={styles.placeLeadingText}>{leading}</Text>
@@ -686,19 +1043,8 @@ function PlaceRow({
         <Text style={styles.placeMeta}>{meta}</Text>
       </View>
 
-      {onRemove ? (
-        <Pressable
-          onPress={onRemove}
-          style={({ pressed }) => [
-            styles.placeRemoveButton,
-            pressed && styles.collapseButtonPressed,
-          ]}
-          accessibilityLabel={`Remover parada ${title}`}
-        >
-          <Ionicons name="close" size={16} color={colors.textSecondary} />
-        </Pressable>
-      ) : null}
-    </View>
+      <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+    </Pressable>
   );
 }
 
@@ -839,7 +1185,7 @@ const styles = StyleSheet.create({
     left: spacing.md,
     right: spacing.md,
     bottom: spacing.md,
-    maxHeight: 340,
+    maxHeight: 360,
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     shadowColor: "#000",
@@ -948,12 +1294,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.sm,
   },
+  placeRowVisited: {
+    opacity: 0.58,
+  },
   placeLeading: {
     width: 34,
     height: 34,
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
+  },
+  placeLeadingVisited: {
+    opacity: 0.72,
   },
   placeLeadingText: {
     fontSize: 13,
@@ -963,14 +1315,6 @@ const styles = StyleSheet.create({
   placeTextWrap: {
     flex: 1,
     gap: 2,
-  },
-  placeRemoveButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.background,
   },
   placeTitle: {
     fontSize: 14,
@@ -985,5 +1329,162 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
     lineHeight: 18,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(26, 26, 26, 0.28)",
+  },
+  modalBackdrop: {
+    flex: 1,
+  },
+  modalCard: {
+    maxHeight: "78%",
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingBottom: spacing.lg,
+  },
+  modalContent: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  modalHeaderCopy: {
+    flex: 1,
+  },
+  modalTitle: {
+    ...typography.title,
+    fontSize: 22,
+    color: colors.textPrimary,
+  },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceAlt,
+  },
+  modalImageShell: {
+    width: "100%",
+    height: 188,
+    borderRadius: radius.lg,
+    overflow: "hidden",
+    backgroundColor: colors.surfaceAlt,
+  },
+  modalImage: {
+    width: "100%",
+    height: "100%",
+  },
+  modalImagePlaceholder: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalImagePlaceholderText: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: colors.textOnPrimary,
+    letterSpacing: 1,
+  },
+  modalMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    flexWrap: "wrap",
+  },
+  categoryPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 7,
+    borderRadius: radius.full,
+  },
+  categoryPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textOnPrimary,
+  },
+  visitedPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 7,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceAlt,
+  },
+  visitedPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textSecondary,
+  },
+  detailLoadingWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  detailLoadingText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  detailLine: {
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  detailLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  detailValue: {
+    ...typography.body,
+    color: colors.textPrimary,
+    lineHeight: 22,
+  },
+  modalActionGroup: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  modalSecondaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceAlt,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  modalSecondaryButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  modalDangerButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  modalDangerButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textOnPrimary,
+  },
+  disabledButton: {
+    opacity: 0.65,
   },
 });

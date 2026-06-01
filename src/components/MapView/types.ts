@@ -22,6 +22,7 @@ export type MapMarker = {
   lng: number;
   kind?: MapMarkerKind;
   category?: MapPoiCategory;
+  state?: "active" | "visited";
   badge?: string;
   label?: string;
 };
