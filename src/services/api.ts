@@ -2,9 +2,14 @@ export const API_URL =
   process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8080";
 
 let tokenProvider: () => string | null = () => null;
+let refreshHandler: (() => Promise<string | null>) | null = null;
 
 export function setTokenProvider(fn: () => string | null) {
   tokenProvider = fn;
+}
+
+export function setRefreshHandler(fn: () => Promise<string | null>) {
+  refreshHandler = fn;
 }
 
 export class ApiError extends Error {
@@ -19,7 +24,7 @@ export class ApiError extends Error {
 
 type ApiOptions = Omit<RequestInit, "body"> & { body?: unknown; auth?: boolean };
 
-export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
+export async function api<T>(path: string, options: ApiOptions = {}, _retry = false): Promise<T> {
   const { body, auth, headers, ...rest } = options;
 
   const finalHeaders: Record<string, string> = {
@@ -43,6 +48,18 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   const data = text ? safeJson(text) : null;
 
   if (!res.ok) {
+    // Tenta renovar o token uma vez em caso de 401
+    if (res.status === 401 && !_retry && refreshHandler && auth !== false) {
+      try {
+        const newToken = await refreshHandler();
+        if (newToken) {
+          return api<T>(path, options, true);
+        }
+      } catch {
+        // refresh falhou — sessao sera limpa pelo refreshHandler
+      }
+    }
+
     const message =
       data && typeof data === "object"
         ? extractMessage(data) ?? `Erro ${res.status} em ${path}`
