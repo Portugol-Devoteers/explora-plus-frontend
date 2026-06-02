@@ -91,6 +91,7 @@ export function ExploreScreen() {
   const requestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
   const destinationInputRef = useRef<TextInput | null>(null);
+  const prefetchedStopIds = useRef(new Set<string>());
 
   const applyRouteResult = useCallback((data: TourRouteResponse) => {
     setRouteResult(data);
@@ -198,6 +199,36 @@ export function ExploreScreen() {
       setDetailLoadingStopId(null);
     }
   }, [routeResult, selectedStopId]);
+
+  // Pre-busca detalhes de todos os POIs em background quando a rota muda.
+  // Isso garante que imagens e informacoes ja estejam prontas na aba Lugares
+  // e no modal de detalhe sem precisar clicar primeiro.
+  useEffect(() => {
+    if (!routeResult) return;
+    const places = routeResult.route.places_to_pass;
+    let cancelled = false;
+
+    const run = async () => {
+      for (const place of places) {
+        if (cancelled) break;
+        if (prefetchedStopIds.current.has(place.stop_id)) continue;
+        prefetchedStopIds.current.add(place.stop_id);
+        try {
+          const detail = await fetchTourRoutePoiDetail(place.stop_id);
+          if (!cancelled) {
+            setDetailCache((current) => ({ ...current, [place.stop_id]: detail }));
+          }
+        } catch {
+          // nao critico — ignora falhas individuais
+        }
+        // Pausa entre requisicoes para nao sobrecarregar as APIs externas
+        if (!cancelled) await new Promise((r) => setTimeout(r, 400));
+      }
+    };
+
+    void run();
+    return () => { cancelled = true; };
+  }, [routeResult]);
 
   async function submitRoute(originValue = origin, destinationValue = destination) {
     const nextOrigin = originValue.trim();
