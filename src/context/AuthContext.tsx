@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { setTokenProvider } from "../services/api";
+import { setRefreshHandler, setTokenProvider } from "../services/api";
 import {
   AuthTokens,
   AuthUser,
@@ -43,6 +43,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setTokenProvider(() => accessRef.current);
+
+    setRefreshHandler(async () => {
+      const storedRefresh = await storage.get(REFRESH_KEY);
+      if (!storedRefresh) {
+        setStatus("anonymous");
+        return null;
+      }
+      try {
+        const { access: newAccess } = await refreshRequest(storedRefresh);
+        accessRef.current = newAccess;
+        await storage.set(ACCESS_KEY, newAccess);
+        return newAccess;
+      } catch {
+        accessRef.current = null;
+        await Promise.all([
+          storage.remove(ACCESS_KEY),
+          storage.remove(REFRESH_KEY),
+          storage.remove(USER_KEY),
+        ]);
+        setUser(null);
+        setStatus("anonymous");
+        return null;
+      }
+    });
   }, []);
 
   useEffect(() => {
