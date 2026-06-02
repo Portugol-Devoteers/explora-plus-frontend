@@ -1,9 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useRef, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,14 +19,26 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { TourPoiDetailModal } from "../components/TourPoiDetailModal";
 import {
   MapView,
   type LatLng,
   type MapMarker,
   type MapPolyline,
 } from "../components/MapView";
+import {
+  buildMapLabel,
+  buildPlaceMeta,
+  CATEGORY_COLORS,
+  CATEGORY_LABELS,
+  CATEGORY_SHORT_LABELS,
+  formatDistance,
+  formatDuration,
+  toDetailPlace,
+} from "../features/tourRoutes/ui";
 import { ApiError } from "../services/api";
 import {
+  fetchCurrentTourRoute,
   fetchTourRoutePoiDetail,
   planTourRoute,
   removeTourRouteStop,
@@ -59,24 +70,6 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "food", label: "Comida" },
 ];
 
-const CATEGORY_LABELS: Record<TourRouteCategory, string> = {
-  culture: "Cultura",
-  park: "Parques",
-  food: "Comida",
-};
-
-const CATEGORY_SHORT_LABELS: Record<TourRouteCategory, string> = {
-  culture: "C",
-  park: "P",
-  food: "F",
-};
-
-const CATEGORY_COLORS: Record<TourRouteCategory, string> = {
-  culture: "#A63A50",
-  park: "#2E7D32",
-  food: "#C96A00",
-};
-
 export function ExploreScreen() {
   const [origin, setOrigin] = useState(DEFAULT_ORIGIN);
   const [destination, setDestination] = useState(DEFAULT_DESTINATION);
@@ -99,9 +92,98 @@ export function ExploreScreen() {
   const detailRequestIdRef = useRef(0);
   const destinationInputRef = useRef<TextInput | null>(null);
 
-  useEffect(() => {
-    void submitRoute(DEFAULT_ORIGIN, DEFAULT_DESTINATION);
+  const applyRouteResult = useCallback((data: TourRouteResponse) => {
+    setRouteResult(data);
+    setOrigin(data.route.origin.label);
+    setDestination(data.route.destination.label);
   }, []);
+
+  const requestPlannedRoute = useCallback(
+    async (
+      nextOrigin: string,
+      nextDestination: string,
+      options?: { fallbackFromCurrent?: boolean },
+    ) => {
+      const fallbackFromCurrent = options?.fallbackFromCurrent ?? false;
+      const requestId = requestIdRef.current + 1;
+      requestIdRef.current = requestId;
+      setLoading(true);
+      setError(null);
+
+      try {
+        const data = await planTourRoute({
+          origin: { address: nextOrigin },
+          destination: { address: nextDestination },
+        });
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+        applyRouteResult(data);
+      } catch (caughtError) {
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+        if (caughtError instanceof ApiError) {
+          setError(caughtError.message);
+        } else if (caughtError instanceof Error) {
+          setError(caughtError.message);
+        } else {
+          setError(
+            fallbackFromCurrent
+              ? "Nao foi possivel carregar sua rota atual agora."
+              : "Nao foi possivel calcular a rota agora.",
+          );
+        }
+      } finally {
+        if (requestId === requestIdRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [applyRouteResult],
+  );
+
+  const loadCurrentRoute = useCallback(async () => {
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const currentRoute = await fetchCurrentTourRoute();
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+      applyRouteResult(currentRoute);
+      setLoading(false);
+      return;
+    } catch (caughtError) {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+      if (!(caughtError instanceof ApiError) || caughtError.status !== 404) {
+        if (caughtError instanceof ApiError) {
+          setError(caughtError.message);
+        } else if (caughtError instanceof Error) {
+          setError(caughtError.message);
+        } else {
+          setError("Nao foi possivel carregar sua rota atual agora.");
+        }
+        setLoading(false);
+        return;
+      }
+    }
+
+    await requestPlannedRoute(DEFAULT_ORIGIN, DEFAULT_DESTINATION, {
+      fallbackFromCurrent: true,
+    });
+  }, [applyRouteResult, requestPlannedRoute]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadCurrentRoute();
+    }, [loadCurrentRoute]),
+  );
 
   useEffect(() => {
     if (!selectedStopId) {
@@ -126,40 +208,7 @@ export function ExploreScreen() {
       return;
     }
 
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await planTourRoute({
-        origin: { address: nextOrigin },
-        destination: { address: nextDestination },
-      });
-
-      if (requestId !== requestIdRef.current) {
-        return;
-      }
-
-      setRouteResult(data);
-    } catch (caughtError) {
-      if (requestId !== requestIdRef.current) {
-        return;
-      }
-
-      if (caughtError instanceof ApiError) {
-        setError(caughtError.message);
-      } else if (caughtError instanceof Error) {
-        setError(caughtError.message);
-      } else {
-        setError("Nao foi possivel calcular a rota agora.");
-      }
-    } finally {
-      if (requestId === requestIdRef.current) {
-        setLoading(false);
-      }
-    }
+    await requestPlannedRoute(nextOrigin, nextDestination);
   }
 
   const routeOriginLabel = routeResult?.route.origin.label ?? origin;
@@ -188,7 +237,6 @@ export function ExploreScreen() {
       : routePlaces.find((place) => place.stop_id === selectedStopId) ?? null;
   const selectedDetail =
     selectedStopId == null ? null : detailCache[selectedStopId] ?? null;
-  const isDetailLoading = detailLoadingStopId === selectedStopId;
 
   async function openPlaceDetail(stopId: string) {
     const exists = routePlaces.some((place) => place.stop_id === stopId);
@@ -241,7 +289,6 @@ export function ExploreScreen() {
 
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
-
     setLoading(true);
     setError(null);
     setDetailActionLoading(true);
@@ -251,7 +298,7 @@ export function ExploreScreen() {
       if (requestId !== requestIdRef.current) {
         return;
       }
-      setRouteResult(data);
+      applyRouteResult(data);
       if (selectedStopId === stopId) {
         setSelectedStopId(null);
       }
@@ -297,7 +344,7 @@ export function ExploreScreen() {
       if (requestId !== requestIdRef.current) {
         return;
       }
-      setRouteResult(data);
+      applyRouteResult(data);
     } catch (caughtError) {
       if (requestId !== requestIdRef.current) {
         return;
@@ -568,176 +615,29 @@ export function ExploreScreen() {
         </Animated.View>
       </View>
 
-      <Modal
+      <TourPoiDetailModal
         visible={selectedStopId != null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectedStopId(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <Pressable
-            style={styles.modalBackdrop}
-            onPress={() => setSelectedStopId(null)}
-          />
-
-          <View style={styles.modalCard}>
-            <ScrollView
-              contentContainerStyle={styles.modalContent}
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.modalHeader}>
-                <View style={styles.modalHeaderCopy}>
-                  <Text style={styles.summaryEyebrow}>Ponto de interesse</Text>
-                  <Text style={styles.modalTitle}>
-                    {selectedDetail?.name ?? selectedPlace?.name ?? "Detalhe do ponto"}
-                  </Text>
-                </View>
-
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.modalCloseButton,
-                    pressed && styles.collapseButtonPressed,
-                  ]}
-                  onPress={() => setSelectedStopId(null)}
-                  accessibilityLabel="Fechar detalhes"
-                >
-                  <Ionicons name="close" size={18} color={colors.textPrimary} />
-                </Pressable>
-              </View>
-
-              <View style={styles.modalImageShell}>
-                {selectedDetail?.image_url ? (
-                  <Image
-                    source={{ uri: selectedDetail.image_url }}
-                    style={styles.modalImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View
-                    style={[
-                      styles.modalImagePlaceholder,
-                      {
-                        backgroundColor: selectedPlace
-                          ? CATEGORY_COLORS[selectedPlace.category]
-                          : colors.surfaceAlt,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.modalImagePlaceholderText}>
-                      {selectedPlace
-                        ? CATEGORY_SHORT_LABELS[selectedPlace.category]
-                        : "POI"}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {selectedPlace ? (
-                <View style={styles.modalMetaRow}>
-                  <View
-                    style={[
-                      styles.categoryPill,
-                      { backgroundColor: CATEGORY_COLORS[selectedPlace.category] },
-                    ]}
-                  >
-                    <Text style={styles.categoryPillText}>
-                      {CATEGORY_LABELS[selectedPlace.category]}
-                    </Text>
-                  </View>
-
-                  {selectedPlace.state === "visited" ? (
-                    <View style={styles.visitedPill}>
-                      <Text style={styles.visitedPillText}>Ja visitado</Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-
-              {isDetailLoading ? (
-                <View style={styles.detailLoadingWrap}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={styles.detailLoadingText}>
-                    Carregando detalhes do local...
-                  </Text>
-                </View>
-              ) : null}
-
-              {detailError ? <Text style={styles.errorText}>{detailError}</Text> : null}
-
-              <DetailLine
-                label="Endereco"
-                value={
-                  selectedDetail?.address ||
-                  selectedPlace?.name ||
-                  "Endereco nao informado."
-                }
-              />
-              <DetailLine
-                label="Resumo"
-                value={
-                  selectedDetail?.summary ||
-                  "Sem resumo salvo para este ponto ainda."
-                }
-              />
-              {selectedDetail?.opening_hours ? (
-                <DetailLine label="Horario" value={selectedDetail.opening_hours} />
-              ) : null}
-              {selectedDetail?.website ? (
-                <DetailLine label="Website" value={selectedDetail.website} />
-              ) : null}
-              {selectedDetail?.source_url ? (
-                <DetailLine label="Fonte" value={selectedDetail.source_url} />
-              ) : null}
-
-              {selectedPlace && savedRouteId ? (
-                <View style={styles.modalActionGroup}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.modalSecondaryButton,
-                      pressed && styles.collapseButtonPressed,
-                      detailActionLoading && styles.disabledButton,
-                    ]}
-                    onPress={() => {
-                      void toggleVisitedState(selectedPlace);
-                    }}
-                    disabled={detailActionLoading}
-                  >
-                    <Ionicons
-                      name={
-                        selectedPlace.state === "visited"
-                          ? "reload-outline"
-                          : "checkmark-done-outline"
-                      }
-                      size={18}
-                      color={colors.textPrimary}
-                    />
-                    <Text style={styles.modalSecondaryButtonText}>
-                      {selectedPlace.state === "visited"
-                        ? "Desmarcar visitado"
-                        : "Marcar como visitado"}
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.modalDangerButton,
-                      pressed && styles.collapseButtonPressed,
-                      detailActionLoading && styles.disabledButton,
-                    ]}
-                    onPress={() => {
-                      void removeStop(selectedPlace.stop_id);
-                    }}
-                    disabled={detailActionLoading}
-                  >
-                    <Ionicons name="trash-outline" size={18} color={colors.textOnPrimary} />
-                    <Text style={styles.modalDangerButtonText}>Excluir da rota</Text>
-                  </Pressable>
-                </View>
-              ) : null}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+        place={selectedPlace ? toDetailPlace(selectedPlace) : null}
+        detail={selectedDetail}
+        loading={detailLoadingStopId === selectedStopId}
+        error={detailError}
+        actionLoading={detailActionLoading}
+        onClose={() => setSelectedStopId(null)}
+        onToggleVisited={
+          selectedPlace
+            ? () => {
+                void toggleVisitedState(selectedPlace);
+              }
+            : undefined
+        }
+        onExcludeFromRoute={
+          selectedPlace && selectedPlace.included_in_route
+            ? () => {
+                void removeStop(selectedPlace.stop_id);
+              }
+            : undefined
+        }
+      />
     </SafeAreaView>
   );
 }
@@ -885,22 +785,6 @@ function mapFeatureToMarker(
   };
 }
 
-function buildMapLabel(
-  name: string | undefined,
-  category: TourRouteCategory | undefined,
-  waypointOrder: number | null | undefined,
-  state: TourRouteStopState,
-): string {
-  if (!name) {
-    return "";
-  }
-
-  const prefix = typeof waypointOrder === "number" ? `${waypointOrder}. ` : "";
-  const categoryLabel = category ? ` - ${CATEGORY_LABELS[category]}` : "";
-  const stateLabel = state === "visited" ? " - Ja visitado" : "";
-  return `${prefix}${name}${categoryLabel}${stateLabel}`;
-}
-
 function getMapCenter(routeResult: TourRouteResponse | null): LatLng {
   if (!routeResult) {
     return DEFAULT_CENTER;
@@ -916,33 +800,6 @@ function getMapCenter(routeResult: TourRouteResponse | null): LatLng {
         routeResult.route.destination.location.lng) /
       2,
   };
-}
-
-function formatDistance(distanceM: number): string {
-  if (distanceM >= 1000) {
-    return `${(distanceM / 1000).toFixed(1)} km`;
-  }
-
-  return `${distanceM} m`;
-}
-
-function formatDuration(durationS: number): string {
-  const minutes = Math.max(1, Math.round(durationS / 60));
-  return `${minutes} min`;
-}
-
-function formatDistanceFromRoute(distanceM: number): string {
-  if (distanceM >= 1000) {
-    return `${(distanceM / 1000).toFixed(1)} km da rota`;
-  }
-
-  return `${distanceM} m da rota`;
-}
-
-function buildPlaceMeta(place: TourRoutePlaceToPass): string {
-  return `${CATEGORY_LABELS[place.category]} - ${formatDistanceFromRoute(
-    place.distance_from_route_m,
-  )}`;
 }
 
 function FilterChip({
@@ -992,15 +849,6 @@ function MetricCell({ label, value }: { label: string; value: string }) {
 
 function SectionTitle({ title }: { title: string }) {
   return <Text style={styles.sectionTitle}>{title}</Text>;
-}
-
-function DetailLine({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.detailLine}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
-    </View>
-  );
 }
 
 function PlaceRow({
@@ -1329,162 +1177,5 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSecondary,
     lineHeight: 18,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(26, 26, 26, 0.28)",
-  },
-  modalBackdrop: {
-    flex: 1,
-  },
-  modalCard: {
-    maxHeight: "78%",
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    paddingBottom: spacing.lg,
-  },
-  modalContent: {
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: spacing.md,
-  },
-  modalHeaderCopy: {
-    flex: 1,
-  },
-  modalTitle: {
-    ...typography.title,
-    fontSize: 22,
-    color: colors.textPrimary,
-  },
-  modalCloseButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceAlt,
-  },
-  modalImageShell: {
-    width: "100%",
-    height: 188,
-    borderRadius: radius.lg,
-    overflow: "hidden",
-    backgroundColor: colors.surfaceAlt,
-  },
-  modalImage: {
-    width: "100%",
-    height: "100%",
-  },
-  modalImagePlaceholder: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalImagePlaceholderText: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: colors.textOnPrimary,
-    letterSpacing: 1,
-  },
-  modalMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    flexWrap: "wrap",
-  },
-  categoryPill: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 7,
-    borderRadius: radius.full,
-  },
-  categoryPillText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.textOnPrimary,
-  },
-  visitedPill: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 7,
-    borderRadius: radius.full,
-    backgroundColor: colors.surfaceAlt,
-  },
-  visitedPillText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.textSecondary,
-  },
-  detailLoadingWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  detailLoadingText: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  detailLine: {
-    gap: spacing.xs,
-    paddingVertical: spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-  },
-  detailLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  detailValue: {
-    ...typography.body,
-    color: colors.textPrimary,
-    lineHeight: 22,
-  },
-  modalActionGroup: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  modalSecondaryButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: radius.full,
-    backgroundColor: colors.surfaceAlt,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-  },
-  modalSecondaryButtonText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: colors.textPrimary,
-  },
-  modalDangerButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: radius.full,
-    backgroundColor: colors.primary,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-  },
-  modalDangerButtonText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: colors.textOnPrimary,
-  },
-  disabledButton: {
-    opacity: 0.65,
   },
 });

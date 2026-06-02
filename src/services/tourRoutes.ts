@@ -100,6 +100,20 @@ export type TourRoutePoiDetail = {
   website: string | null;
 };
 
+export type UserTourPlace = {
+  stop_id: string;
+  name: string;
+  category: TourRouteCategory;
+  image_url: string | null;
+  address: string;
+  summary: string;
+  is_visited: boolean;
+  is_in_current_route: boolean;
+  is_excluded_from_current_route: boolean;
+  current_route_order: number | null;
+  last_seen_at: string;
+};
+
 export type PlanTourRouteRequest = {
   origin: { address: string };
   destination: { address: string };
@@ -112,6 +126,10 @@ export async function planTourRoute(
     method: "POST",
     body: payload,
   });
+}
+
+export async function fetchCurrentTourRoute(): Promise<TourRouteResponse> {
+  return api<TourRouteResponse>("/api/tour-routes/current/");
 }
 
 export async function removeTourRouteStop(
@@ -131,6 +149,23 @@ export async function fetchTourRoutePoiDetail(
 ): Promise<TourRoutePoiDetail> {
   return api<TourRoutePoiDetail>(
     `/api/tour-routes/pois/${encodeURIComponent(stopId)}/`,
+  );
+}
+
+export async function fetchUserTourPlaces(): Promise<UserTourPlace[]> {
+  return api<UserTourPlace[]>("/api/tour-routes/places/");
+}
+
+export async function updateUserTourPlaceVisited(
+  stopId: string,
+  visited: boolean,
+): Promise<UserTourPlace> {
+  return api<UserTourPlace>(
+    `/api/tour-routes/places/${encodeURIComponent(stopId)}/visited/`,
+    {
+      method: "PATCH",
+      body: { visited },
+    },
   );
 }
 
