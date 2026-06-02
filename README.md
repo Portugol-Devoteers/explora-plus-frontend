@@ -61,17 +61,18 @@ Hoje a navegacao visivel tem 3 abas:
 
 - login
 - cadastro
-- refresh de token ao abrir o app
+- refresh automatico de token: ao abrir o app e em qualquer requisicao com 401 (sem precisar reabrir)
 - logout
 - carregamento de rota atual salva
 - fallback automatico para rota padrao da Paulista
 - calculo de rota via backend
 - mapa com rota, origem, destino, stops e POIs
 - filtros `Todos`, `Cultura`, `Parques`, `Comida`
-- modal de detalhe de POI
+- pre-busca automatica de imagens e detalhes dos POIs em background apos a rota carregar
+- modal de detalhe de POI (abre instantaneamente para POIs ja pre-buscados)
 - marcar/desmarcar `ja visitado`
 - excluir POI da rota atual
-- biblioteca pessoal de lugares
+- biblioteca pessoal de lugares com imagens
 
 ### O que existe no codigo, mas nao e o fluxo principal
 
@@ -616,13 +617,13 @@ docker compose logs -f frontend
 
 ## Problemas comuns
 
-### 1. Login funciona, mas planner quebra com token expirado
+### 1. Token expirado durante o uso
 
-O fluxo atual tenta renovar token ao abrir o app.
+O app renova o token automaticamente em qualquer resposta 401 usando o refresh token em storage.
 
-Se a sessao local estiver muito antiga:
+Se o refresh token tambem estiver expirado (padrao SimpleJWT: 1 dia):
 
-- o app pode limpar a sessao
+- o app limpa a sessao automaticamente
 - basta fazer login novamente
 
 ### 2. Frontend abre, mas nada carrega do backend
