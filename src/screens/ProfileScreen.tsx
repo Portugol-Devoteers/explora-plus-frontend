@@ -1,4 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -12,11 +14,15 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../context/AuthContext";
+import type { RootStackParamList } from "../navigation/types";
 import { fetchMe, type Me } from "../services/me";
 import { colors, radius, spacing, typography } from "../theme";
 
+type Navigation = NativeStackNavigationProp<RootStackParamList, "Tabs">;
+
 export function ProfileScreen() {
   const { signOut, user } = useAuth();
+  const navigation = useNavigation<Navigation>();
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -64,6 +70,22 @@ export function ProfileScreen() {
           entering={FadeInDown.duration(420).springify().damping(18)}
           style={styles.profileCard}
         >
+          <View style={styles.cardHeader}>
+            <View style={styles.cardHeaderCopy}>
+              <Text style={styles.cardEyebrow}>Conta</Text>
+            </View>
+            <Pressable
+              onPress={() => navigation.navigate("SearchSettings")}
+              style={({ pressed }) => [
+                styles.settingsButton,
+                pressed && styles.settingsPressed,
+              ]}
+              accessibilityLabel="Abrir configuracoes de busca"
+            >
+              <Ionicons name="settings-outline" size={18} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+
           <Image source={{ uri: avatarUrl }} style={styles.avatar} />
 
           <Text style={styles.profileName}>{displayName}</Text>
@@ -79,6 +101,23 @@ export function ProfileScreen() {
               pontos de interesse.
             </Text>
           </View>
+
+          <Pressable
+            onPress={() => navigation.navigate("SearchSettings")}
+            style={({ pressed }) => [
+              styles.settingsCard,
+              pressed && styles.settingsPressed,
+            ]}
+          >
+            <View style={styles.settingsCopy}>
+              <Text style={styles.settingsTitle}>Configuracoes de busca</Text>
+              <Text style={styles.settingsText}>
+                Ajuste categorias, distancia entre POIs e raio maximo para a sua
+                proxima rota.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+          </Pressable>
 
           {loading ? (
             <View style={styles.loadingRow}>
@@ -124,6 +163,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
+  cardHeader: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  cardHeaderCopy: {
+    flex: 1,
+  },
+  cardEyebrow: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  settingsButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   avatar: {
     width: 88,
     height: 88,
@@ -162,6 +227,32 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     lineHeight: 18,
   },
+  settingsCard: {
+    width: "100%",
+    marginTop: spacing.xs,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  settingsCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  settingsTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  settingsText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
   loadingRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -184,6 +275,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   logoutPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.99 }],
+  },
+  settingsPressed: {
     opacity: 0.88,
     transform: [{ scale: 0.99 }],
   },

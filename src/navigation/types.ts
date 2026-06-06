@@ -8,6 +8,7 @@ export type RootTabParamList = {
 
 export type RootStackParamList = {
   Tabs: undefined;
+  SearchSettings: undefined;
   PlaceDetail: { placeId: string };
   Route: { placeId: string };
 };

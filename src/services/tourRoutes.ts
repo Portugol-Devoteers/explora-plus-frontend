@@ -3,6 +3,13 @@ import { api } from "./api";
 export type TourRouteCategory = "culture" | "park" | "food";
 export type TourRouteMode = "tour" | "direct_fallback";
 export type TourRouteStopState = "active" | "visited";
+export type TourRoutePreferences = {
+  include_culture: boolean;
+  include_park: boolean;
+  include_food: boolean;
+  poi_spacing_m: 75 | 100 | 150;
+  max_search_radius_m: 150 | 250 | 400;
+};
 
 export type TourRoutePoint = {
   lat: number;
@@ -181,4 +188,17 @@ export async function updateTourRouteStopState(
       body: { state },
     },
   );
+}
+
+export async function fetchTourRoutePreferences(): Promise<TourRoutePreferences> {
+  return api<TourRoutePreferences>("/api/tour-routes/preferences/");
+}
+
+export async function updateTourRoutePreferences(
+  payload: TourRoutePreferences,
+): Promise<TourRoutePreferences> {
+  return api<TourRoutePreferences>("/api/tour-routes/preferences/", {
+    method: "PATCH",
+    body: payload,
+  });
 }

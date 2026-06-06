@@ -23,6 +23,7 @@ O projeto roda em React Native, mas o caminho mais usado e validado hoje e **Exp
 - [Variaveis de ambiente](#variaveis-de-ambiente)
 - [Fluxo por tela](#fluxo-por-tela)
 - [Mapa e planner](#mapa-e-planner)
+- [Configuracoes de busca](#configuracoes-de-busca)
 - [Persistencia local e autenticacao](#persistencia-local-e-autenticacao)
 - [Comandos uteis](#comandos-uteis)
 - [Problemas comuns](#problemas-comuns)
@@ -44,6 +45,7 @@ O fluxo ativo e:
    - marcar POI como visitado
    - excluir POI da rota atual
 6. a aba `Lugares` mostra a biblioteca pessoal de POIs que ja apareceram em rotas
+7. a aba `Perfil` permite abrir `Configuracoes de busca` para ajustar como a proxima rota sera calculada
 
 ## Estado atual do MVP
 
@@ -73,6 +75,7 @@ Hoje a navegacao visivel tem 3 abas:
 - marcar/desmarcar `ja visitado`
 - excluir POI da rota atual
 - biblioteca pessoal de lugares com imagens
+- configuracoes personalizadas do planner por usuario
 
 ### O que existe no codigo, mas nao e o fluxo principal
 
@@ -144,6 +147,7 @@ explora-plus-frontend/
 |   |   |-- ExploreScreen.tsx
 |   |   |-- PlacesScreen.tsx
 |   |   |-- ProfileScreen.tsx
+|   |   |-- SearchSettingsScreen.tsx
 |   |   |-- LoginScreen.tsx
 |   |   |-- RegisterScreen.tsx
 |   |   `-- ... telas legadas ...
@@ -217,6 +221,7 @@ Ele ainda mantem no stack:
 
 - `PlaceDetail`
 - `Route`
+- `SearchSettings`
 
 Mas, no MVP atual, a experiencia principal esta nas tabs.
 
@@ -259,6 +264,8 @@ Ou seja:
 
 - `POST /api/tour-routes/`
 - `GET /api/tour-routes/current/`
+- `GET /api/tour-routes/preferences/`
+- `PATCH /api/tour-routes/preferences/`
 - `GET /api/tour-routes/places/`
 - `GET /api/tour-routes/pois/<stop_id>/`
 - `PATCH /api/tour-routes/places/<stop_id>/visited/`
@@ -273,6 +280,7 @@ Tipos importantes:
 
 - `TourRouteResponse`
 - `TourRoutePayload`
+- `TourRoutePreferences`
 - `TourRoutePlaceToPass`
 - `TourRoutePoiDetail`
 - `UserTourPlace`
@@ -389,6 +397,7 @@ Responsabilidades:
 - permitir recalculo com dois campos:
   - `Endereco de origem`
   - `Destino`
+- aplicar implicitamente as preferencias de busca salvas do usuario na proxima chamada de `POST /api/tour-routes/`
 - mostrar mapa, filtros e resumo
 - abrir modal de detalhe ao clicar em:
   - bolha do mapa
@@ -468,11 +477,39 @@ MVP enxuto:
 - nome
 - e-mail
 - member since
+- botao de engrenagem para `Configuracoes de busca`
 - botao `Sair da conta`
 
 O profile puxa:
 
 - `GET /api/me/`
+
+### `SearchSettingsScreen`
+
+Arquivo: [src/screens/SearchSettingsScreen.tsx](/C:/Users/lucas/Documents/Projects/academic/PCE/explora-plus-frontend/src/screens/SearchSettingsScreen.tsx)
+
+Papel:
+
+- carregar as preferencias atuais com `GET /api/tour-routes/preferences/`
+- permitir salvar novas preferencias com `PATCH /api/tour-routes/preferences/`
+- manter a regra de pelo menos uma categoria ativa
+- explicar para o usuario que a mudanca vale so na proxima busca
+
+Controles visiveis:
+
+- switches:
+  - `Cultura`
+  - `Parques`
+  - `Comida`
+- presets:
+  - `Distancia entre POIs`: `75m`, `100m`, `150m`
+  - `Raio maximo de busca`: `150m`, `250m`, `400m`
+
+Comportamento importante:
+
+- salvar nessa tela nao recalcula a rota atual
+- `ExploreScreen` continua mostrando a rota salva anterior
+- as novas preferencias entram quando o usuario toca `Gerar rota` novamente
 
 ## Mapa e planner
 
@@ -537,6 +574,33 @@ Labels visiveis:
 - `Cultura`
 - `Parques`
 - `Comida`
+
+## Configuracoes de busca
+
+As configuracoes de busca pertencem ao planner e sao persistidas por usuario autenticado no backend.
+
+Defaults atuais:
+
+- categorias: `Cultura`, `Parques`, `Comida` ligadas
+- distancia entre POIs: `100m`
+- raio maximo de busca: `250m`
+
+Presets disponiveis:
+
+- distancia entre POIs: `75m`, `100m`, `150m`
+- raio maximo de busca: `150m`, `250m`, `400m`
+
+Impacto pratico:
+
+- desligar uma categoria impede que ela entre na busca automatica de novos POIs
+- aumentar a distancia entre POIs tende a deixar a rota menos densa em paradas
+- aumentar o raio maximo permite considerar pontos mais afastados da linha base
+
+Regra temporal:
+
+- a rota atual salva nao muda ao salvar preferencias
+- `GET /api/tour-routes/current/` continua reabrindo a ultima rota conhecida
+- apenas a proxima chamada de `POST /api/tour-routes/` passa a refletir essas configuracoes
 
 ## Persistencia local e autenticacao
 
